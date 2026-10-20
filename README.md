@@ -1,9 +1,6 @@
 # Customer Activation
 
-Next.js subsystem shell for **Customer Activation**, cloned from the Project Management subsystem
-with the PM business module removed. Auth, theming, the sidebar shell, the subsystem launcher and
-the shared UI primitives are intact; add features under `src/modules/customer-activation/`.
-
+Next.js subsystem shell for **Customer Activation**
 ## Layout
 
 | Path | Purpose |
