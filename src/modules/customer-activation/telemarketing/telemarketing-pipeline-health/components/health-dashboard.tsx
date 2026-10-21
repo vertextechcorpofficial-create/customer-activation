@@ -112,7 +112,7 @@ export function HealthDashboard() {
     <div className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">Pipeline health</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Pipeline Health</h1>
           <p className="text-sm text-muted-foreground">
             {data.totals.total} {data.totals.total === 1 ? "lead" : "leads"} across {data.stages.length}{" "}
             {data.stages.length === 1 ? "stage" : "stages"}.

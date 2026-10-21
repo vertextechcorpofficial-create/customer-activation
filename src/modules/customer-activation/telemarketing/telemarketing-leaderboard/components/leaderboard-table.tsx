@@ -11,7 +11,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   Table,
   TableBody,
@@ -23,19 +22,26 @@ import {
 } from "@/components/ui/table";
 import { useLeaderboard } from "../hooks/use-leaderboard";
 
-function rankTone(rank: number): StatusTone {
-  if (rank === 1) return "success";
-  if (rank === 2) return "info";
-  if (rank === 3) return "warning";
-  return "neutral";
-}
-
 function RankBadge({ rank }: { rank: number }) {
   const Icon = rank === 1 ? Trophy : rank <= 3 ? Medal : null;
   return (
-    <StatusBadge tone={rankTone(rank)}>
-      {Icon ? <Icon className="size-3.5" aria-hidden /> : null}# {rank}
-    </StatusBadge>
+    <span className="inline-flex items-center gap-1.5">
+      {Icon ? (
+        <Icon
+          className={rank === 1 ? "size-4 text-foreground" : "size-4 text-muted-foreground"}
+          aria-hidden
+        />
+      ) : null}
+      <span
+        className={
+          rank === 1
+            ? "text-sm font-semibold tabular-nums"
+            : "text-sm tabular-nums text-muted-foreground"
+        }
+      >
+        {rank}
+      </span>
+    </span>
   );
 }
 
@@ -87,8 +93,11 @@ export function LeaderboardTable() {
   }
 
   return (
-    <Table>
-      <TableCaption>Score = conversions × 3 + qualified × 2 + activities × 1 · month-to-date (Asia/Manila)</TableCaption>
+    <div className="overflow-hidden rounded-lg border border-border">
+      <Table>
+        <TableCaption className="px-3 pb-3 text-left">
+          Score = conversions × 3 + qualified × 2 + activities × 1 · month-to-date (Asia/Manila)
+        </TableCaption>
       <TableHeader>
         <TableRow>
           <TableHead className="w-24">Rank</TableHead>
@@ -115,6 +124,7 @@ export function LeaderboardTable() {
           </TableRow>
         ))}
       </TableBody>
-    </Table>
+      </Table>
+    </div>
   );
 }

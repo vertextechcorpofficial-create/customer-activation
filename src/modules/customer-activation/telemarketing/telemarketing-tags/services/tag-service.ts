@@ -13,6 +13,7 @@ const COLLECTION = "telemarketing_tag";
 
 interface DirectusEnvelope<T> {
     data?: T;
+    meta?: { filter_count?: number };
     errors?: Array<{ message?: string; extensions?: { code?: string } }>;
 }
 
@@ -64,10 +65,46 @@ function tagPatch(input: TagUpdate, actorId: number | null): Record<string, unkn
     return patch;
 }
 
-/** All tags, name order first — inactive ones stay listed so they can be reactivated. */
-export async function listTags(): Promise<Tag[]> {
-    const body = await request<Tag[]>(`/items/${COLLECTION}?fields=*&sort=tag_name&limit=-1`);
-    return body.data ?? [];
+export interface TagPage {
+    items: Tag[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+/**
+ * One page of tags, name order. Inactive ones stay listed so they can be reactivated.
+ * `filter_count` (not `total_count`) is the filtered total — `total_count` is the
+ * whole collection and would make every page count wrong.
+ */
+export async function listTags(
+    opts: { page?: number; limit?: number; search?: string } = {},
+): Promise<TagPage> {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    const search = opts.search?.trim() ?? "";
+
+    const filter = search
+        ? `&filter=${encodeURIComponent(
+              JSON.stringify({
+                  _or: [
+                      { tag_name: { _icontains: search } },
+                      { tag_code: { _icontains: search } },
+                  ],
+              }),
+          )}`
+        : "";
+
+    const body = await request<Tag[]>(
+        `/items/${COLLECTION}?fields=*&sort=tag_name&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count${filter}`,
+    );
+
+    return {
+        items: body.data ?? [],
+        total: body.meta?.filter_count ?? body.data?.length ?? 0,
+        page,
+        limit,
+    };
 }
 
 export async function createTag(input: TagCreate, actorId: number | null): Promise<Tag> {

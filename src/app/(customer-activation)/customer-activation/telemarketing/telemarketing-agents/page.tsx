@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-    title: "Agent Registration | VOS ERP",
+    title: "Agents | VOS ERP",
     description: "Register existing users as telemarketing agents.",
 };
 
@@ -67,7 +67,7 @@ export default async function Page() {
                                 <BreadcrumbSeparator className="hidden shrink-0 md:block" />
                                 <BreadcrumbItem className="min-w-0 overflow-hidden">
                                     <BreadcrumbPage className="max-w-[56vw] truncate sm:max-w-[60vw] md:max-w-none">
-                                        User Creation
+                                        Agents
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>

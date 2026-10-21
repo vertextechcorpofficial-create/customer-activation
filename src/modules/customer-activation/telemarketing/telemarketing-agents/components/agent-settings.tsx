@@ -12,6 +12,7 @@ import {
     Plus,
     PowerOff,
     RefreshCw,
+    Search,
     UserPlus,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -208,8 +209,10 @@ function UserCombobox({
 }
 
 export function AgentSettings() {
-    const { agents, isLoading, error, refresh, registerAgent, updateAgent, deactivateAgent } =
-        useAgents();
+    const [page, setPage] = useState(1);
+    const [search, setSearch] = useState("");
+    const { agents, total, isLoading, error, refresh, registerAgent, updateAgent, deactivateAgent } =
+        useAgents({ page, limit: PAGE_SIZE, search });
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; agent: AgentView } | null>(
         null,
     );
@@ -219,12 +222,10 @@ export function AgentSettings() {
     const [deactivating, setDeactivating] = useState(false);
     const [confirmDeactivate, setConfirmDeactivate] = useState<AgentView | null>(null);
     const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
-    const [page, setPage] = useState(1);
 
-    const totalPages = Math.max(1, Math.ceil(agents.length / PAGE_SIZE));
-    const currentPage = Math.min(page, totalPages);
-    const offset = (currentPage - 1) * PAGE_SIZE;
-    const visible = agents.slice(offset, offset + PAGE_SIZE);
+    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+    const to = Math.min(page * PAGE_SIZE, total);
 
     const openCreate = () => {
         setForm({ ...EMPTY_FORM });
@@ -292,7 +293,7 @@ export function AgentSettings() {
         <div className="mx-auto w-full max-w-[1600px] space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agent registration</h1>
+                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agents</h1>
                     <p className="text-sm text-muted-foreground">
                         Register existing users as telemarketing agents. Users themselves are never created here.
                     </p>
@@ -302,6 +303,23 @@ export function AgentSettings() {
                     Register agent
                 </Button>
             </header>
+
+            <div className="relative w-full sm:max-w-xs">
+                <Search
+                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                />
+                <Input
+                    value={search}
+                    onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                    }}
+                    placeholder="Search agents..."
+                    aria-label="Search agents"
+                    className="pl-8"
+                />
+            </div>
 
             <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
                 <CardContent className="p-0">
@@ -348,7 +366,7 @@ export function AgentSettings() {
                     ) : (
                         <>
                             <ul className="divide-y divide-border md:hidden">
-                                {visible.map((agent) => (
+                                {agents.map((agent) => (
                                     <li key={agent.agent_id} className="flex flex-col gap-3 p-4">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
@@ -380,7 +398,7 @@ export function AgentSettings() {
                                 ))}
                             </ul>
 
-                            <div className="hidden md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
+                            <div className="hidden overflow-x-auto md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
                                 <Table className="min-w-[720px]">
                                     <TableHeader className="bg-muted/30">
                                         <TableRow>
@@ -393,7 +411,7 @@ export function AgentSettings() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {visible.map((agent) => (
+                                        {agents.map((agent) => (
                                             <TableRow key={agent.agent_id}>
                                                 <TableCell
                                                     className="max-w-40 truncate font-mono text-xs"
@@ -434,32 +452,32 @@ export function AgentSettings() {
 
                             <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                 <p className="text-xs text-muted-foreground tabular-nums">
-                                    {totalPages <= 1
-                                        ? `${agents.length} ${agents.length === 1 ? "agent" : "agents"}`
-                                        : `Showing ${offset + 1}-${offset + visible.length} of ${agents.length}`}
+                                    {total === 0
+                                        ? "0 agents"
+                                        : `Showing ${from}–${to} of ${total}`}
                                 </p>
-                                {totalPages > 1 && (
+                                {pageCount > 1 && (
                                     <div className="flex items-center gap-2">
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             className="min-h-11 md:min-h-0"
                                             aria-label="Previous page"
-                                            disabled={currentPage <= 1}
-                                            onClick={() => setPage(currentPage - 1)}
+                                            disabled={page <= 1 || isLoading}
+                                            onClick={() => setPage((p) => Math.max(1, p - 1))}
                                         >
                                             <ChevronLeft className="size-4" />
                                         </Button>
                                         <span className="text-xs text-muted-foreground">
-                                            Page {currentPage} of {totalPages}
+                                            Page {page} of {pageCount}
                                         </span>
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             className="min-h-11 md:min-h-0"
                                             aria-label="Next page"
-                                            disabled={currentPage >= totalPages}
-                                            onClick={() => setPage(currentPage + 1)}
+                                            disabled={page >= pageCount || isLoading}
+                                            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                                         >
                                             <ChevronRight className="size-4" />
                                         </Button>

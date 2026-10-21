@@ -98,7 +98,8 @@ function SourceTable({
                                 {[row.city, row.province].filter(Boolean).join(", ") || "—"}
                             </TableCell>
                             <TableCell className="text-right">
-                                <Button size="sm" variant="outline" onClick={() => onCreate(row)}>
+                                <Button size="sm" variant="ghost" onClick={() => onCreate(row)}>
+                                    <Plus className="size-4" aria-hidden />
                                     Create lead
                                 </Button>
                             </TableCell>

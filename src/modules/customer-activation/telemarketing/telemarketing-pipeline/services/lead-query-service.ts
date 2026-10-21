@@ -1,7 +1,7 @@
 /**
- * Pipeline lead-query service — server-only, read-only over `telemarketing_lead`
+ * Pipeline lead-query service â€” server-only, read-only over `telemarketing_lead`
  * (plus the tag link tables for the detail view). The pipeline never creates
- * leads — capture belongs to lead-generation.
+ * leads â€” capture belongs to lead-generation.
  */
 
 import { dFetch } from "../utils/directus";
@@ -55,8 +55,8 @@ function readData<T>(body: unknown): T | null {
 
 function readTotal(body: unknown): number {
   if (!body || typeof body !== "object") return 0;
-  const meta = (body as Record<string, unknown>).meta as { total_count?: number } | undefined;
-  return meta?.total_count ?? 0;
+  const meta = (body as Record<string, unknown>).meta as { filter_count?: number } | undefined;
+  return meta?.filter_count ?? 0;
 }
 
 /**
@@ -91,7 +91,7 @@ export async function listLeads(filters: LeadQueryFilters): Promise<LeadQueryRes
       sort: "-created_at",
       limit: String(limit),
       offset: String((page - 1) * limit),
-      meta: "total_count",
+      meta: "filter_count",
     })}`,
   );
 

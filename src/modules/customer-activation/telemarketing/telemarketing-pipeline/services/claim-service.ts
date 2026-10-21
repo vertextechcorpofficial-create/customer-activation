@@ -1,9 +1,9 @@
 /**
- * Pipeline claim service — server-only.
+ * Pipeline claim service â€” server-only.
  * Claims are many-to-many: several agents may hold one lead, and claiming
- * never removes a lead from the pool — only a terminal stage does.
+ * never removes a lead from the pool â€” only a terminal stage does.
  * `telemarketing_lead_agent` carries a surrogate `id` plus UNIQUE(lead_id, agent_id)
- * — Directus cannot express a composite primary key — so rows are addressed by `id`.
+ * â€” Directus cannot express a composite primary key â€” so rows are addressed by `id`.
  */
 
 import { decodeJwtPayload } from "@/lib/auth-utils";
@@ -66,9 +66,9 @@ export async function listPool(args: { agentId: number; page: number; limit: num
     return { items: [], meta: { total: 0, page, limit } };
   }
   const filter = encodeURIComponent(JSON.stringify({ stage_id: { _in: stageIds } }));
-  const body = checked<{ data: LeadView[]; meta?: { total_count?: number } }>(
+  const body = checked<{ data: LeadView[]; meta?: { filter_count?: number } }>(
     await dFetch(
-      `/items/telemarketing_lead?filter=${filter}&sort=-created_at&limit=${limit}&offset=${(page - 1) * limit}&meta=total_count`,
+      `/items/telemarketing_lead?filter=${filter}&sort=-created_at&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count`,
     ),
     "load pool",
   );
@@ -94,7 +94,7 @@ export async function listPool(args: { agentId: number; page: number; limit: num
   });
   return {
     items,
-    meta: { total: body.meta?.total_count ?? items.length, page, limit },
+    meta: { total: body.meta?.filter_count ?? items.length, page, limit },
   };
 }
 
@@ -151,7 +151,7 @@ export async function claim(leadId: number, agentId: number, actorId: number | n
   return checked<{ data: LeadAgent }>(body, "claim lead").data;
 }
 
-/** Release a claim — soft, the row stays and `released_at` is stamped. */
+/** Release a claim â€” soft, the row stays and `released_at` is stamped. */
 export async function release(leadId: number, agentId: number, actorId: number | null = null): Promise<LeadAgent> {
   const existing = await findClaimRow(leadId, agentId);
   if (!existing) throw new Error("No claim to release");

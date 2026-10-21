@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, Loader2, Pencil, Plus, PowerOff, RefreshCw, Tags } from "lucide-react";
+import { AlertTriangle, Loader2, Pencil, Plus, PowerOff, RefreshCw, Search, Tags } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     AlertDialog,
@@ -88,7 +88,18 @@ function formFrom(tag: Tag): FormState {
 }
 
 export function TagSettings() {
-    const { tags, isLoading, error, refresh, createTag, updateTag, deactivateTag } = useTags();
+    const PAGE_SIZE = 20;
+    const [page, setPage] = useState(1);
+    const [search, setSearch] = useState("");
+    const { tags, total, isLoading, error, refresh, createTag, updateTag, deactivateTag } = useTags({
+        page,
+        limit: PAGE_SIZE,
+        search,
+    });
+
+    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+    const to = Math.min(page * PAGE_SIZE, total);
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; tag: Tag } | null>(
         null,
     );
@@ -158,7 +169,7 @@ export function TagSettings() {
         <div className="mx-auto w-full max-w-[1600px] space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tag creation</h1>
+                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tags</h1>
                     <p className="text-sm text-muted-foreground">
                         Create colour-coded tags to label and segment telemarketing leads.
                     </p>
@@ -168,6 +179,46 @@ export function TagSettings() {
                     New tag
                 </Button>
             </header>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative w-full sm:max-w-xs">
+                    <Search
+                        className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden
+                    />
+                    <Input
+                        value={search}
+                        onChange={(event) => {
+                            setSearch(event.target.value);
+                            setPage(1);
+                        }}
+                        placeholder="Search tags..."
+                        aria-label="Search tags"
+                        className="pl-8"
+                    />
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                        {from}–{to} of {total}
+                    </span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1 || isLoading}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                        Previous
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= pageCount || isLoading}
+                        onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    >
+                        Next
+                    </Button>
+                </div>
+            </div>
 
             <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
                 <CardContent className="p-0">
@@ -255,7 +306,7 @@ export function TagSettings() {
                                 ))}
                             </ul>
 
-                            <div className="hidden md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
+                            <div className="hidden overflow-x-auto md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
                                 <Table className="min-w-[640px]">
                                     <TableHeader className="bg-muted/30">
                                         <TableRow>

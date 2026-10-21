@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Telemarketing Pipeline",
+  title: "Pipeline | VOS ERP",
   description: "Telemarketing pipeline board: every lead by stage, with stage moves.",
 };
 

@@ -3,7 +3,7 @@ import type { Prospect, ProspectCreate, ProspectStatus, ProspectUpdate } from ".
 import { dFetch } from "../utils/directus";
 
 /**
- * Prospect service — server-only.
+ * Prospect service â€” server-only.
  *
  * Single owner of every read/write against `telemarketing_prospect`.
  * `customer`, `company_list` and `dealer_list` are READ-ONLY reference data:
@@ -115,8 +115,8 @@ function readList<T>(body: unknown): T[] {
 
 function readTotal(body: unknown): number {
     if (!body || typeof body !== "object") return 0;
-    const meta = (body as Record<string, unknown>).meta as { total_count?: number } | undefined;
-    return meta?.total_count ?? 0;
+    const meta = (body as Record<string, unknown>).meta as { filter_count?: number } | undefined;
+    return meta?.filter_count ?? 0;
 }
 
 export function decodeUserId(token: string): number | null {
@@ -223,7 +223,7 @@ export async function listProspects(filters: ProspectFilters): Promise<ProspectL
             sort: "-created_at",
             limit: String(limit),
             offset: String((page - 1) * limit),
-            meta: "total_count",
+            meta: "filter_count",
         })}`,
     );
     return { items: body.data ?? [], meta: { total: readTotal(body), page, limit } };
@@ -231,7 +231,7 @@ export async function listProspects(filters: ProspectFilters): Promise<ProspectL
 
 /**
  * Manually enters a new prospect. Dedupes on email/mobile first across the
- * prospect, lead, customer, company and dealer tables — on a hit nothing is
+ * prospect, lead, customer, company and dealer tables â€” on a hit nothing is
  * inserted and the match is returned for a 409.
  * @param input - The validated manual-entry payload.
  * @param userId - The signed-in user for the audit columns.
@@ -289,7 +289,7 @@ export async function createProspect(input: ProspectCreate, userId: number | nul
 }
 
 /**
- * Patches a prospect. `status: "converted"` can never arrive here — the
+ * Patches a prospect. `status: "converted"` can never arrive here â€” the
  * schema omits it and this guard rejects it at runtime anyway, because
  * conversion belongs to the pipeline module alone.
  * @param prospectId - The prospect id.

@@ -94,6 +94,7 @@ export const LeadViewSchema = z.object({
   email: z.string().max(191).nullable().optional(),
   stage_id: z.number().int(),
   validation_status: z.enum(VALIDATION_STATUSES),
+  product_interest: z.string().max(64).nullable().optional(),
   last_activity_at: z.string().nullable().optional(),
   next_follow_up_at: z.string().nullable().optional(),
 });

@@ -9,6 +9,16 @@ const LEAD_TABLE = "telemarketing_lead";
 const STUCK_CAP = 25;
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * ponytail: per-stage reads are capped at SAMPLE_CAP rows to keep the report O(stages)
+ * instead of O(leads). Count and oldest age stay exact (count comes from
+ * `filter_count`, oldest from the sort); the average age is computed from the
+ * oldest cap rows, so on a stage larger than SAMPLE_CAP it is an approximation.
+ * Upgrade path: a stored `age_days` column or a SQL view, then a true AVG().
+ */
+const SAMPLE_CAP = 200;
+const STUCK_SCAN = 200;
+
 interface StageRow {
   stage_id: number;
   stage_code: string;
@@ -58,6 +68,17 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+interface LeadCountEnvelope {
+  meta?: { filter_count?: number };
+}
+
+async function countLeads(filter: unknown): Promise<number> {
+  const body = await dFetch(
+    `/items/${LEAD_TABLE}?limit=1&meta=filter_count&filter=${encodeURIComponent(JSON.stringify(filter))}`,
+  );
+  return (body as LeadCountEnvelope | null)?.meta?.filter_count ?? 0;
+}
+
 export interface PipelineHealthInput {
   stuckDays: number;
 }
@@ -66,83 +87,100 @@ export async function listPipelineHealth(input: PipelineHealthInput): Promise<Pi
   const stuckDays = Math.trunc(input.stuckDays) || 7;
   const now = Date.now();
 
-  const [stageBody, leadBody] = await Promise.all([
-    dFetch(`/items/${STAGE_TABLE}?sort=stage_order&limit=-1`),
-    dFetch(
-      `/items/${LEAD_TABLE}?limit=-1&fields=lead_id,lead_code,company_name,contact_name,stage_id,updated_at,created_at,last_activity_at`,
-    ),
-  ]);
-  const allStages = readList<StageRow>(stageBody);
-  const leads = readList<LeadRow>(leadBody);
-
+  const allStages = readList<StageRow>(await dFetch(`/items/${STAGE_TABLE}?sort=stage_order&limit=-1`));
   const active = allStages
     .filter((s) => toFlag(s.is_active))
     .sort((a, b) => a.stage_order - b.stage_order);
   const byId = new Map(allStages.map((s) => [s.stage_id, s]));
-  const terminalOf = (stageId: number): "won" | "lost" | null => {
-    const s = byId.get(stageId);
-    if (!s) return null;
-    if (toFlag(s.is_won)) return "won";
-    if (toFlag(s.is_lost)) return "lost";
-    return null;
-  };
 
-  let won = 0;
-  let lost = 0;
-  for (const lead of leads) {
-    const t = terminalOf(lead.stage_id);
-    if (t === "won") won += 1;
-    else if (t === "lost") lost += 1;
-  }
-  const total = leads.length;
+  const wonStageIds = allStages.filter((s) => toFlag(s.is_won)).map((s) => s.stage_id);
+  const lostStageIds = allStages.filter((s) => toFlag(s.is_lost)).map((s) => s.stage_id);
+
+  // One bounded read per active stage: exact count (filter_count), exact oldest
+  // (sorted asc), and an age sample for the average.
+  const [total, won, lost, ...stageReads] = await Promise.all([
+    countLeads({}),
+    wonStageIds.length ? countLeads({ stage_id: { _in: wonStageIds } }) : Promise.resolve(0),
+    lostStageIds.length ? countLeads({ stage_id: { _in: lostStageIds } }) : Promise.resolve(0),
+    ...active.map(async (stage) => {
+      const filter = encodeURIComponent(JSON.stringify({ stage_id: { _eq: stage.stage_id } }));
+      const body = await dFetch(
+        `/items/${LEAD_TABLE}?filter=${filter}&sort=updated_at&limit=${SAMPLE_CAP}&fields=updated_at&meta=filter_count`,
+      );
+      const rows = readList<{ updated_at: string }>(body);
+      const count = (body as LeadCountEnvelope | null)?.meta?.filter_count ?? rows.length;
+      const ages = rows.map((row) => ageDays(row.updated_at, now));
+      const sum = ages.reduce((acc, value) => acc + value, 0);
+      return { stage, count, ages, sum };
+    }),
+  ]);
+
   const activeCount = total - won - lost;
 
-  const byStage = new Map<number, LeadRow[]>();
-  for (const lead of leads) {
-    const list = byStage.get(lead.stage_id) ?? [];
-    list.push(lead);
-    byStage.set(lead.stage_id, list);
-  }
+  const stages: StageHealth[] = stageReads.map(({ stage, count, ages, sum }) => ({
+    stage_id: stage.stage_id,
+    stage_code: stage.stage_code,
+    stage_name: stage.stage_name,
+    stage_order: stage.stage_order,
+    leadCount: count,
+    share: total === 0 ? 0 : round1((count / total) * 100),
+    avgDaysInStage: ages.length === 0 ? 0 : round1(sum / ages.length),
+    oldestAgeDays: ages.length === 0 ? 0 : round1(Math.max(...ages)),
+  }));
 
-  const stages: StageHealth[] = active.map((stage) => {
-    const rows = byStage.get(stage.stage_id) ?? [];
-    const ages = rows.map((l) => ageDays(l.updated_at, now));
-    const sum = ages.reduce((acc, v) => acc + v, 0);
-    return {
-      stage_id: stage.stage_id,
-      stage_code: stage.stage_code,
-      stage_name: stage.stage_name,
-      stage_order: stage.stage_order,
-      leadCount: rows.length,
-      share: total === 0 ? 0 : round1((rows.length / total) * 100),
-      avgDaysInStage: rows.length === 0 ? 0 : round1(sum / rows.length),
-      oldestAgeDays: round1(ages.length === 0 ? 0 : Math.max(...ages)),
-    };
-  });
+  const activeIds = active.map((s) => s.stage_id);
+  const cutoff = new Date(now - stuckDays * MS_PER_DAY)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
 
-  const activeIds = new Set(active.map((s) => s.stage_id));
-  const stuck: StuckLead[] = leads
-    .filter((l) => activeIds.has(l.stage_id))
-    .map((l) => {
-      const anchor = l.last_activity_at ?? l.created_at;
-      return {
-        lead: l,
-        daysStuck: Math.floor(ageDays(anchor, now)),
-        anchor,
-      };
+  // Candidates only: active stage AND no activity (or a stale one) past the cutoff.
+  // Bounded scan, worst STUCK_CAP surface.
+  const stuckFilter = {
+    _and: [
+      { stage_id: { _in: activeIds } },
+      {
+        _or: [
+          { last_activity_at: { _lt: cutoff } },
+          {
+            _and: [
+              { last_activity_at: { _null: true } },
+              { created_at: { _lt: cutoff } },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const stuckRows =
+    activeIds.length === 0
+      ? []
+      : readList<LeadRow>(
+          await dFetch(
+            `/items/${LEAD_TABLE}?filter=${encodeURIComponent(
+              JSON.stringify(stuckFilter),
+            )}&sort=last_activity_at&limit=${STUCK_SCAN}&fields=lead_id,lead_code,company_name,contact_name,stage_id,last_activity_at,created_at`,
+          ),
+        );
+
+  const stuck: StuckLead[] = stuckRows
+    .map((lead) => {
+      const anchor = lead.last_activity_at ?? lead.created_at;
+      return { lead, daysStuck: Math.floor(ageDays(anchor, now)), anchor };
     })
-    .filter((r) => r.daysStuck > stuckDays)
+    .filter((row) => row.daysStuck > stuckDays)
     .sort((a, b) => b.daysStuck - a.daysStuck)
     .slice(0, STUCK_CAP)
-    .map((r) => ({
-      lead_id: r.lead.lead_id,
-      lead_code: r.lead.lead_code,
-      company_name: r.lead.company_name,
-      contact_name: r.lead.contact_name,
-      stage_id: r.lead.stage_id,
-      stage_name: byId.get(r.lead.stage_id)?.stage_name ?? "—",
-      lastActivityAt: r.anchor,
-      daysStuck: r.daysStuck,
+    .map((row) => ({
+      lead_id: row.lead.lead_id,
+      lead_code: row.lead.lead_code,
+      company_name: row.lead.company_name,
+      contact_name: row.lead.contact_name,
+      stage_id: row.lead.stage_id,
+      stage_name: byId.get(row.lead.stage_id)?.stage_name ?? "—",
+      lastActivityAt: row.anchor,
+      daysStuck: row.daysStuck,
     }));
 
   return {

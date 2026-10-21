@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LeadCreateSchema, type SourceOption } from "../types/lead.schema";
 import { createLead } from "../providers/lead-provider";
+import { TagMultiCombobox } from "./tag-multi-combobox";
 
 export interface LeadPrefill {
     company_name?: string;
@@ -50,7 +51,7 @@ export function CreateLeadDialog({
     const [industry, setIndustry] = useState("");
     const [productInterest, setProductInterest] = useState("");
     const [need, setNeed] = useState("");
-    const [tagIds, setTagIds] = useState("");
+    const [tagIds, setTagIds] = useState<number[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const prefillKey = JSON.stringify(prefill);
@@ -66,7 +67,7 @@ export function CreateLeadDialog({
         setIndustry(p?.industry ?? "");
         setProductInterest(p?.product_interest ?? "");
         setNeed(p?.need ?? "");
-        setTagIds("");
+        setTagIds([]);
     }, [open, prefillKey]);
 
     const source = prefill?.source ?? "prospecting";
@@ -76,10 +77,7 @@ export function CreateLeadDialog({
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!canSubmit) return;
-        const tags = tagIds
-            .split(",")
-            .map((v) => Number(v.trim()))
-            .filter((v) => Number.isInteger(v));
+        const tags = tagIds.filter((v) => Number.isInteger(v));
         const parsed = LeadCreateSchema.safeParse({
             source,
             party_kind: prefill?.party_kind ?? "none",
@@ -217,12 +215,11 @@ export function CreateLeadDialog({
                         />
                     </div>
                     <div className="grid gap-1.5">
-                        <Label htmlFor="lg-tags">Tags (optional, comma-separated IDs)</Label>
-                        <Input
-                            id="lg-tags"
+                        <Label>Tags (optional)</Label>
+                        <TagMultiCombobox
                             value={tagIds}
-                            onChange={(e) => setTagIds(e.target.value)}
-                            placeholder="1, 2"
+                            onChange={setTagIds}
+                            disabled={isSubmitting}
                         />
                     </div>
                     <DialogFooter>

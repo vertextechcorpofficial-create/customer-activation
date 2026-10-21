@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-    title: "Tag Creation | VOS ERP",
+    title: "Tags | VOS ERP",
     description: "Create and manage telemarketing lead tags.",
 };
 
@@ -69,7 +69,7 @@ export default async function Page() {
                                 <BreadcrumbSeparator className="hidden md:block shrink-0" />
                                 <BreadcrumbItem className="min-w-0 overflow-hidden">
                                     <BreadcrumbPage className="truncate max-w-[56vw] sm:max-w-[60vw] md:max-w-none">
-                                        Tag Creation
+                                        Tags
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>

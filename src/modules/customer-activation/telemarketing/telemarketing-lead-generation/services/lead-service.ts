@@ -92,8 +92,8 @@ function readList<T>(body: unknown): T[] {
 
 function readTotal(body: unknown): number {
     if (!body || typeof body !== "object") return 0;
-    const meta = (body as Record<string, unknown>).meta as { total_count?: number } | undefined;
-    return meta?.total_count ?? 0;
+    const meta = (body as Record<string, unknown>).meta as { filter_count?: number } | undefined;
+    return meta?.filter_count ?? 0;
 }
 
 function mobileCandidates(mobile: string): string[] {
@@ -151,7 +151,7 @@ async function nextLeadCode(): Promise<string> {
     return `TM-${String(next).padStart(6, "0")}`;
 }
 
-/** First active stage by pipeline order — new leads start here. */
+/** First active stage by pipeline order â€” new leads start here. */
 async function resolveFirstActiveStage(): Promise<number | null> {
     const body = await dFetch(
         `/items/${STAGE_TABLE}${qs({
@@ -189,7 +189,7 @@ export async function listLeads(filters: LeadFilters): Promise<LeadListResult> {
             sort: "-created_at",
             limit: String(limit),
             offset: String((page - 1) * limit),
-            meta: "total_count",
+            meta: "filter_count",
         })}`,
     );
     return { items: readList<Lead>(body), meta: { total: readTotal(body), page, limit } };

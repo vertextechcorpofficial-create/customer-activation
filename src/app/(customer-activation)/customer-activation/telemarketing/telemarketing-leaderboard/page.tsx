@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Agent Leaderboard",
+  title: "Leaderboard | VOS ERP",
   description: "Month-to-date telemarketing agent leaderboard by score.",
 };
 

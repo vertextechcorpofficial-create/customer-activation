@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Pipeline board service — server-only (Server Action, called from `use-board`).
+ * Pipeline board service â€” server-only (Server Action, called from `use-board`).
  * Per-stage lead windows: every active stage gets its own `limit`, so terminal
  * stages (Closed Won / Lost) render instead of being filtered out like the pool.
  */
@@ -50,14 +50,14 @@ export async function listBoardLeads({
   const pages = await Promise.all(
     stages.map(async (stage): Promise<{ stage_id: number; leads: LeadView[]; total: number }> => {
       const filter = encodeURIComponent(JSON.stringify({ stage_id: { _eq: stage.stage_id } }));
-      const body = checked<{ data: LeadView[]; meta?: { total_count?: number } }>(
+      const body = checked<{ data: LeadView[]; meta?: { filter_count?: number } }>(
         await dFetch(
-          `/items/telemarketing_lead?filter=${filter}&sort=-updated_at&limit=${limit}&meta=total_count`,
+          `/items/telemarketing_lead?filter=${filter}&sort=-updated_at&limit=${limit}&meta=filter_count`,
         ),
         "load board leads",
       );
       const leads = body.data ?? [];
-      return { stage_id: stage.stage_id, leads, total: body.meta?.total_count ?? leads.length };
+      return { stage_id: stage.stage_id, leads, total: body.meta?.filter_count ?? leads.length };
     }),
   );
 

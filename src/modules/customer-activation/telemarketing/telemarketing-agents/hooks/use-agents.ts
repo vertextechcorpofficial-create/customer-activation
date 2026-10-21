@@ -6,7 +6,7 @@ import type { AgentCreate, AgentUpdate } from "../types/agent.schema";
 import type { AgentView } from "../services/agent-service";
 import {
     deactivateAgent as apiDeactivateAgent,
-    getAgents,
+    getAgentsPage,
     registerAgent as apiRegisterAgent,
     updateAgent as apiUpdateAgent,
 } from "../providers/agent-provider";
@@ -15,32 +15,38 @@ function toMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Something went wrong";
 }
 
-export function useAgents() {
+export function useAgents(params: { page: number; limit: number; search?: string }) {
+    const { page, limit, search } = params;
     const [agents, setAgents] = useState<AgentView[]>([]);
+    const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    /** Background reload after a write: keeps the last good list if it fails. */
+    /** Background reload after a write: keeps the last good page if it fails. */
     const sync = useCallback(async () => {
         try {
-            setAgents(await getAgents());
+            const result = await getAgentsPage({ page, limit, search });
+            setAgents(result.items);
+            setTotal(result.total);
             setError(null);
         } catch {
-            // the write already succeeded — keep the list we have
+            // the write already succeeded — keep the page we have
         }
-    }, []);
+    }, [page, limit, search]);
 
     const refresh = useCallback(async () => {
         setIsLoading(true);
         setError(null);
         try {
-            setAgents(await getAgents());
+            const result = await getAgentsPage({ page, limit, search });
+            setAgents(result.items);
+            setTotal(result.total);
         } catch (err) {
             setError(toMessage(err));
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [page, limit, search]);
 
     useEffect(() => {
         void refresh();
@@ -91,5 +97,5 @@ export function useAgents() {
         [sync],
     );
 
-    return { agents, isLoading, error, refresh, registerAgent, updateAgent, deactivateAgent };
+    return { agents, total, isLoading, error, refresh, registerAgent, updateAgent, deactivateAgent };
 }

@@ -6,7 +6,7 @@ import type { Tag, TagCreate, TagUpdate } from "../types/tag.schema";
 import {
     createTag as apiCreateTag,
     deactivateTag as apiDeactivateTag,
-    getTags,
+    getTagsPage,
     updateTag as apiUpdateTag,
 } from "../providers/tag-provider";
 
@@ -14,32 +14,38 @@ function toMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Something went wrong";
 }
 
-export function useTags() {
+export function useTags(params: { page: number; limit: number; search?: string }) {
+    const { page, limit, search } = params;
     const [tags, setTags] = useState<Tag[]>([]);
+    const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    /** Background reload after a write: keeps the last good list if it fails. */
+    /** Background reload after a write: keeps the last good page if it fails. */
     const sync = useCallback(async () => {
         try {
-            setTags(await getTags());
+            const result = await getTagsPage({ page, limit, search });
+            setTags(result.items);
+            setTotal(result.total);
             setError(null);
         } catch {
-            // the write already succeeded — keep the list we have
+            // the write already succeeded — keep the page we have
         }
-    }, []);
+    }, [page, limit, search]);
 
     const refresh = useCallback(async () => {
         setIsLoading(true);
         setError(null);
         try {
-            setTags(await getTags());
+            const result = await getTagsPage({ page, limit, search });
+            setTags(result.items);
+            setTotal(result.total);
         } catch (err) {
             setError(toMessage(err));
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [page, limit, search]);
 
     useEffect(() => {
         void refresh();
@@ -90,5 +96,5 @@ export function useTags() {
         [sync],
     );
 
-    return { tags, isLoading, error, refresh, createTag, updateTag, deactivateTag };
+    return { tags, total, isLoading, error, refresh, createTag, updateTag, deactivateTag };
 }

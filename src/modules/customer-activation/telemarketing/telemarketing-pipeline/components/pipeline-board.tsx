@@ -181,7 +181,7 @@ function LeadCard({
             {lead.company_name}
           </span>
         </Link>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{lead.lead_code}</span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{lead.lead_code}</span>
       </div>
 
       <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -207,9 +207,21 @@ function LeadCard({
       </dl>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <StatusBadge tone={VALIDATION_TONE[lead.validation_status]} className="capitalize">
-          {lead.validation_status.replace(/_/g, " ")}
-        </StatusBadge>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {lead.product_interest ? (
+            <span
+              className="max-w-28 truncate rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              title={lead.product_interest}
+            >
+              {lead.product_interest}
+            </span>
+          ) : null}
+          {lead.validation_status !== "new" ? (
+            <StatusBadge tone={VALIDATION_TONE[lead.validation_status]} className="capitalize">
+              {lead.validation_status.replace(/_/g, " ")}
+            </StatusBadge>
+          ) : null}
+        </div>
         <MoveMenu lead={lead} stages={stages} disabled={pending} onSelect={requestMove} />
       </div>
 
@@ -267,7 +279,7 @@ function StageColumn({
   const hidden = Math.max(total - visible.length, 0);
 
   return (
-    <section className="flex w-72 shrink-0 flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3">
+    <section className="flex min-h-[420px] w-64 shrink-0 snap-start flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3">
       <header className="flex items-center justify-between gap-2">
         <h2 className="min-w-0 truncate text-sm font-semibold" title={stage.stage_name}>
           {stage.stage_name}
@@ -288,12 +300,6 @@ function StageColumn({
           ))}
         </ul>
       )}
-
-      {total > 0 && hidden === 0 ? (
-        <p className="px-1 text-center text-[11px] text-muted-foreground">
-          Showing all {total} {total === 1 ? "lead" : "leads"}
-        </p>
-      ) : null}
 
       {hidden > 0 ? (
         <Button asChild variant="ghost" size="sm" className="min-h-11 md:min-h-0 w-full text-xs">
@@ -384,7 +390,7 @@ export function PipelineBoard() {
         </div>
       </div>
 
-      <div className="-mx-2 flex gap-4 overflow-x-auto px-2 pb-2">
+      <div className="-mx-2 flex snap-x gap-3 overflow-x-auto px-2 pb-3">
         {columns.map((column) => (
           <StageColumn
             key={column.stage.stage_id}

@@ -11,11 +11,12 @@ const BASE = "/api/customer-activation/telemarketing/telemarketing-agents";
 interface Envelope<T> {
     success: boolean;
     data?: T;
+    meta?: { total: number; page: number; limit: number };
     message?: string;
     errors?: Array<{ field?: string; message: string }>;
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestEnvelope<T>(url: string, init?: RequestInit): Promise<Envelope<T>> {
     const res = await fetch(url, {
         ...init,
         cache: "no-store",
@@ -27,11 +28,41 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
             body?.errors?.[0]?.message ?? body?.message ?? "Something went wrong. Please try again.",
         );
     }
+    return body;
+}
+
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+    const body = await requestEnvelope<T>(url, init);
     return body.data as T;
 }
 
+export interface AgentPageResult {
+    items: AgentView[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export function getAgentsPage(params: {
+    page: number;
+    limit: number;
+    search?: string;
+}): Promise<AgentPageResult> {
+    const qs = new URLSearchParams({
+        page: String(params.page),
+        limit: String(params.limit),
+    });
+    if (params.search?.trim()) qs.set("search", params.search.trim());
+    return requestEnvelope<AgentView[]>(`${BASE}?${qs.toString()}`).then((body) => ({
+        items: body.data ?? [],
+        total: body.meta?.total ?? body.data?.length ?? 0,
+        page: body.meta?.page ?? params.page,
+        limit: body.meta?.limit ?? params.limit,
+    }));
+}
+
 export function getAgents(): Promise<AgentView[]> {
-    return request<AgentView[]>(BASE);
+    return request<AgentView[]>(`${BASE}?limit=100`);
 }
 
 export function registerAgent(input: AgentCreate): Promise<Agent> {

@@ -17,6 +17,7 @@ const USERS = "user";
 
 interface DirectusEnvelope<T> {
     data?: T;
+    meta?: { filter_count?: number };
     errors?: Array<{ message?: string; extensions?: { code?: string } }>;
 }
 
@@ -80,18 +81,48 @@ function mintAgentCode(userId: number): string {
     return `AGT-${userId}-${Date.now().toString(36).toUpperCase()}`;
 }
 
-/** All agents, oldest registration first, supervisor names resolved. */
-export async function listAgents(): Promise<AgentView[]> {
-    const body = await request<Agent[]>(`/items/${AGENTS}?fields=*&sort=agent_id&limit=-1`);
+export interface AgentPage {
+    items: AgentView[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+/**
+ * One page of agents, oldest registration first, supervisor + email resolved
+ * for that page only. `filter_count` is the filtered total — `total_count` is
+ * the whole collection and would make the pager lie.
+ */
+export async function listAgents(
+    opts: { page?: number; limit?: number; search?: string } = {},
+): Promise<AgentPage> {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    const search = opts.search?.trim() ?? "";
+    const filter = search
+        ? `&filter=${encodeURIComponent(
+              JSON.stringify({
+                  _or: [
+                      { display_name: { _icontains: search } },
+                      { agent_code: { _icontains: search } },
+                  ],
+              }),
+          )}`
+        : "";
+
+    const body = await request<Agent[]>(
+        `/items/${AGENTS}?fields=*&sort=agent_id&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count${filter}`,
+    );
     const agents = body.data ?? [];
-    if (agents.length === 0) return [];
+    const total = body.meta?.filter_count ?? agents.length;
+    if (agents.length === 0) return { items: [], total, page, limit };
 
     const supervisorIds = [...new Set(agents.map((a) => a.supervisor_agent_id).filter((id): id is number => typeof id === "number"))];
     const names = new Map<number, string>();
     if (supervisorIds.length > 0) {
-        const filter = encodeURIComponent(JSON.stringify({ agent_id: { _in: supervisorIds } }));
+        const supFilter = encodeURIComponent(JSON.stringify({ agent_id: { _in: supervisorIds } }));
         const rows = await request<Array<{ agent_id: number; display_name: string }>>(
-            `/items/${AGENTS}?filter=${filter}&limit=-1&fields=agent_id,display_name`,
+            `/items/${AGENTS}?filter=${supFilter}&limit=-1&fields=agent_id,display_name`,
         );
         for (const row of rows.data ?? []) names.set(row.agent_id, row.display_name);
     }
@@ -106,7 +137,7 @@ export async function listAgents(): Promise<AgentView[]> {
         if (row.user_email) emails.set(row.user_id, row.user_email);
     }
 
-    return agents.map((agent) => ({
+    const items = agents.map((agent) => ({
         ...agent,
         user_email: emails.get(agent.user_id) ?? null,
         supervisor_display_name:
@@ -114,6 +145,8 @@ export async function listAgents(): Promise<AgentView[]> {
                 ? (names.get(agent.supervisor_agent_id) ?? `Agent ${agent.supervisor_agent_id}`)
                 : null,
     }));
+
+    return { items, total, page, limit };
 }
 
 /**

@@ -19,16 +19,28 @@ function actorId(token: string): number | null {
     return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
     if (!token) {
         return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
     }
 
+    const params = new URL(request.url).searchParams;
+    const page = Number(params.get("page") ?? 1);
+    const limit = Number(params.get("limit") ?? 20);
+
     try {
-        const agents = await listAgents();
-        return NextResponse.json({ success: true, data: agents });
+        const result = await listAgents({
+            page: Number.isFinite(page) ? page : 1,
+            limit: Number.isFinite(limit) ? limit : 20,
+            search: params.get("search") ?? undefined,
+        });
+        return NextResponse.json({
+            success: true,
+            data: result.items,
+            meta: { total: result.total, page: result.page, limit: result.limit },
+        });
     } catch (error) {
         console.error("[telemarketing/telemarketing-agents] GET failed:", error);
         const status = error instanceof AgentServiceError ? error.status : 500;
