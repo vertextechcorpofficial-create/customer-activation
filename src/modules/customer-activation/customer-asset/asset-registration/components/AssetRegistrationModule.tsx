@@ -6,6 +6,15 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Eye, Pencil, Plus, Tags } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     Dialog,
     DialogContent,
@@ -211,47 +220,53 @@ export function AssetRegistrationModule() {
 
     const filters = (
         <div className="flex flex-wrap items-center gap-2">
-            <select
-                value={groupFilter}
-                onChange={(e) => setGroupFilter(e.target.value)}
-                aria-label="Filter by group"
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-xs"
+            <Select
+                value={groupFilter === "" ? "all" : groupFilter}
+                onValueChange={(v) => setGroupFilter(v === "all" ? "" : v)}
             >
-                <option value="">All groups</option>
-                <option value="none">No group</option>
-                {groups.map((g) => (
-                    <option key={g.id} value={String(g.id)}>
-                        {g.group_name}
-                    </option>
-                ))}
-            </select>
-            <select
-                value={tagFilter}
-                onChange={(e) => setTagFilter(e.target.value)}
-                aria-label="Filter by tag"
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-xs"
+                <SelectTrigger aria-label="Filter by group" className="h-8 w-auto text-xs">
+                    <SelectValue placeholder="All groups" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All groups</SelectItem>
+                    <SelectItem value="none">No group</SelectItem>
+                    {groups.map((g) => (
+                        <SelectItem key={g.id} value={String(g.id)}>
+                            {g.group_name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select
+                value={tagFilter === "" ? "all" : tagFilter}
+                onValueChange={(v) => setTagFilter(v === "all" ? "" : v)}
             >
-                <option value="">All tags</option>
-                {tags.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                        {t.tag_name}
-                    </option>
-                ))}
-            </select>
-            <select
-                value={availability}
-                onChange={(e) => setAvailability(e.target.value as Availability)}
-                aria-label="Filter by availability"
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs shadow-xs tabular-nums"
-            >
-                <option value="all">All stock</option>
-                <option value="available">Available</option>
-                <option value="fully-out">Fully out</option>
-            </select>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <SelectTrigger aria-label="Filter by tag" className="h-8 w-auto text-xs">
+                    <SelectValue placeholder="All tags" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All tags</SelectItem>
+                    {tags.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                            {t.tag_name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={availability} onValueChange={(v) => setAvailability(v as Availability)}>
+                <SelectTrigger aria-label="Filter by availability" className="h-8 w-auto text-xs tabular-nums">
+                    <SelectValue placeholder="All stock" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All stock</SelectItem>
+                    <SelectItem value="available">Available</SelectItem>
+                    <SelectItem value="fully-out">Fully out</SelectItem>
+                </SelectContent>
+            </Select>
+            <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Switch checked={showRetired} onCheckedChange={setShowRetired} aria-label="Show retired assets" />
                 Retired
-            </label>
+            </Label>
         </div>
     );
 
@@ -324,19 +339,19 @@ export function AssetRegistrationModule() {
                             tags.map((tag) => {
                                 const checked = tagSelection.includes(tag.id);
                                 return (
-                                    <label
+                                    <Label
                                         key={tag.id}
+                                        htmlFor={`asset-list-tag-${tag.id}`}
                                         className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
                                     >
-                                        <input
-                                            type="checkbox"
+                                        <Checkbox
+                                            id={`asset-list-tag-${tag.id}`}
                                             checked={checked}
-                                            onChange={() =>
+                                            onCheckedChange={() =>
                                                 setTagSelection((prev) =>
                                                     checked ? prev.filter((id) => id !== tag.id) : [...prev, tag.id],
                                                 )
                                             }
-                                            className="size-4 shrink-0 accent-primary"
                                             aria-label={`Tag ${tag.tag_name}`}
                                         />
                                         <span
@@ -345,7 +360,7 @@ export function AssetRegistrationModule() {
                                             style={{ backgroundColor: tag.color ?? "transparent" }}
                                         />
                                         <span className="truncate">{tag.tag_name}</span>
-                                    </label>
+                                    </Label>
                                 );
                             })
                         )}

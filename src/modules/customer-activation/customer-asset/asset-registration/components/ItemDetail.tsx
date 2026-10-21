@@ -7,7 +7,16 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
 import { useAssetItem } from "../hooks/useAssetItem";
 import { lotValue, unitValue } from "../utils/valuation";
 
@@ -96,21 +105,23 @@ export function ItemDetail({ id }: { id: number }) {
             </header>
 
             <div className="grid gap-4 lg:grid-cols-3">
-                <Card className="shadow-none">
+                <Card className="shadow-none border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between gap-2">
                             <CardTitle className="text-sm">Valuation</CardTitle>
                             <div className="flex rounded-md border p-0.5 text-xs" role="group" aria-label="Depreciation unit">
                                 {(["month", "day"] as const).map((u) => (
-                                    <button
+                                    <Button
                                         key={u}
                                         type="button"
+                                        size="sm"
+                                        variant={unit === u ? "secondary" : "ghost"}
                                         onClick={() => setUnit(u)}
                                         aria-pressed={unit === u}
-                                        className={`rounded px-2 py-0.5 capitalize ${unit === u ? "bg-muted font-medium" : "text-muted-foreground"}`}
+                                        className="capitalize"
                                     >
                                         {u}
-                                    </button>
+                                    </Button>
                                 ))}
                             </div>
                         </div>
@@ -143,7 +154,7 @@ export function ItemDetail({ id }: { id: number }) {
                     </CardContent>
                 </Card>
 
-                <Card className="shadow-none">
+                <Card className="shadow-none border-border">
                     <CardHeader>
                         <CardTitle className="text-sm">Quantity</CardTitle>
                     </CardHeader>
@@ -162,16 +173,10 @@ export function ItemDetail({ id }: { id: number }) {
                                 <p className="text-xs text-muted-foreground">Available</p>
                             </div>
                         </div>
-                        <div
-                            className="h-2 overflow-hidden rounded-full bg-muted"
-                            role="progressbar"
-                            aria-valuenow={detail.quantity_out}
-                            aria-valuemin={0}
-                            aria-valuemax={item.quantity}
+                        <Progress
+                            value={outPct}
                             aria-label="Units assigned out"
-                        >
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${outPct}%` }} />
-                        </div>
+                        />
                         {item.remarks ? (
                             <p className="truncate text-sm text-muted-foreground" title={item.remarks}>
                                 {item.remarks}
@@ -180,7 +185,7 @@ export function ItemDetail({ id }: { id: number }) {
                     </CardContent>
                 </Card>
 
-                <Card className="shadow-none">
+                <Card className="shadow-none border-border">
                     <CardHeader>
                         <CardTitle className="text-sm">Tags</CardTitle>
                     </CardHeader>
@@ -209,7 +214,7 @@ export function ItemDetail({ id }: { id: number }) {
                 </Card>
             </div>
 
-            <Card className="shadow-none">
+            <Card className="shadow-none border-border">
                 <CardHeader>
                     <CardTitle className="text-sm">Who holds units</CardTitle>
                 </CardHeader>
@@ -220,40 +225,40 @@ export function ItemDetail({ id }: { id: number }) {
                         </p>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b text-left text-xs text-muted-foreground">
-                                        <th className="px-6 py-2 font-medium">Customer</th>
-                                        <th className="px-4 py-2 font-medium tabular-nums">Units</th>
-                                        <th className="px-4 py-2 font-medium">Status</th>
-                                        <th className="px-6 py-2 font-medium">Expected return</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="px-6 font-medium">Customer</TableHead>
+                                        <TableHead className="px-4 font-medium tabular-nums">Units</TableHead>
+                                        <TableHead className="px-4 font-medium">Status</TableHead>
+                                        <TableHead className="px-6 font-medium">Expected return</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
                                     {detail.holdings.map((h) => (
-                                        <tr key={h.id} className="border-b last:border-0">
-                                            <td className="max-w-48 truncate px-6 py-2 tabular-nums" title={String(h.customer_id ?? "")}>
+                                        <TableRow key={h.id}>
+                                            <TableCell className="max-w-48 truncate px-6 tabular-nums" title={String(h.customer_id ?? "")}>
                                                 {h.customer_id ?? "—"}
-                                            </td>
-                                            <td className="px-4 py-2 tabular-nums">
+                                            </TableCell>
+                                            <TableCell className="px-4 tabular-nums">
                                                 {Math.max(0, h.quantity - h.returned_quantity)}
-                                            </td>
-                                            <td className="px-4 py-2">
+                                            </TableCell>
+                                            <TableCell className="px-4">
                                                 <StatusBadge tone={h.assignment_status === "open" ? "info" : "neutral"}>
                                                     {h.assignment_status}
                                                 </StatusBadge>
-                                            </td>
-                                            <td className="px-6 py-2 tabular-nums">{h.expected_return ?? "—"}</td>
-                                        </tr>
+                                            </TableCell>
+                                            <TableCell className="px-6 tabular-nums">{h.expected_return ?? "—"}</TableCell>
+                                        </TableRow>
                                     ))}
-                                </tbody>
-                            </table>
+                                </TableBody>
+                            </Table>
                         </div>
                     )}
                 </CardContent>
             </Card>
 
-            <Card className="shadow-none">
+            <Card className="shadow-none border-border">
                 <CardHeader>
                     <CardTitle className="text-sm">History</CardTitle>
                 </CardHeader>

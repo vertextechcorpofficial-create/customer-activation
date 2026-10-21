@@ -155,11 +155,12 @@ export function AssignAssetDialog({
                             >
                                 {customerOptions.map((c) => (
                                     <li key={c.id}>
-                                        <button
+                                        <Button
                                             type="button"
+                                            variant="ghost"
                                             role="option"
                                             aria-selected={false}
-                                            className="w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                            className="h-auto w-full justify-start truncate px-2 py-1.5 text-left text-sm font-normal"
                                             onClick={() => {
                                                 setValue("customer_id", c.id, { shouldValidate: true });
                                                 setCustomerQuery(
@@ -176,7 +177,7 @@ export function AssignAssetDialog({
                                                     {c.customer_code}
                                                 </span>
                                             ) : null}
-                                        </button>
+                                        </Button>
                                     </li>
                                 ))}
                             </ul>

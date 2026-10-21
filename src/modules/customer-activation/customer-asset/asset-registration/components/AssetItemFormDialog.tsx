@@ -5,6 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { z } from "zod";
 import {
     Dialog,
@@ -16,6 +17,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -175,22 +183,24 @@ export function AssetItemFormDialog({
                                 name="group_id"
                                 control={control}
                                 render={({ field }) => (
-                                    <select
-                                        id="asset-group"
-                                        value={field.value ?? ""}
-                                        onChange={(e) =>
-                                            field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                                    <Select
+                                        value={field.value == null ? "none" : String(field.value)}
+                                        onValueChange={(v) =>
+                                            field.onChange(v === "none" ? null : Number(v))
                                         }
-                                        onBlur={field.onBlur}
-                                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs"
                                     >
-                                        <option value="">No group</option>
-                                        {groups.map((g) => (
-                                            <option key={g.id} value={g.id}>
-                                                {g.group_name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <SelectTrigger id="asset-group" onBlur={field.onBlur}>
+                                            <SelectValue placeholder="No group" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">No group</SelectItem>
+                                            {groups.map((g) => (
+                                                <SelectItem key={g.id} value={String(g.id)}>
+                                                    {g.group_name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 )}
                             />
                         </div>
@@ -294,21 +304,21 @@ export function AssetItemFormDialog({
                                                 const selected = field.value ?? [];
                                                 const checked = selected.includes(tag.id);
                                                 return (
-                                                    <label
+                                                    <Label
                                                         key={tag.id}
+                                                        htmlFor={`asset-tag-${tag.id}`}
                                                         className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
                                                     >
-                                                        <input
-                                                            type="checkbox"
+                                                        <Checkbox
+                                                            id={`asset-tag-${tag.id}`}
                                                             checked={checked}
-                                                            onChange={() =>
+                                                            onCheckedChange={() =>
                                                                 field.onChange(
                                                                     checked
                                                                         ? selected.filter((id: number) => id !== tag.id)
                                                                         : [...selected, tag.id],
                                                                 )
                                                             }
-                                                            className="size-4 shrink-0 accent-primary"
                                                             aria-label={`Tag ${tag.tag_name}`}
                                                         />
                                                         <span
@@ -317,7 +327,7 @@ export function AssetItemFormDialog({
                                                             style={{ backgroundColor: tag.color ?? "transparent" }}
                                                         />
                                                         <span className="truncate">{tag.tag_name}</span>
-                                                    </label>
+                                                    </Label>
                                                 );
                                             })}
                                         </>
