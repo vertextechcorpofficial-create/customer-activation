@@ -9,7 +9,7 @@ export const DAYS_PER_MONTH = 30;
 
 // UTC midnight so day math is timezone-stable.
 function parseIsoDate(value: string): Date {
-    const [year, month, day] = value.split("-").map(Number);
+    const [year, month, day] = String(value).slice(0, 10).split("-").map(Number);
     return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
 }
 

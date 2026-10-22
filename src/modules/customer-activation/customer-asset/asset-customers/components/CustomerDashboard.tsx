@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./StatusPill";
 import {
     Table,
     TableBody,
@@ -29,6 +29,19 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useCustomerDetail } from "../hooks/useCustomerDetail";
 import type { Note } from "../types/asset-customers.schema";
+
+function formatStamp(value: string | null): string {
+    if (!value) return "—";
+    return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
+}
+
+function assignmentLabel(status: string): string {
+    const s = status.toLowerCase();
+    if (s === "open") return "Open";
+    if (s === "partial") return "Partial";
+    if (s === "returned") return "Returned";
+    return status;
+}
 
 function timeAgo(value: string | null): string {
     if (!value) return "—";
@@ -110,18 +123,22 @@ export function CustomerDashboard({ id }: { id: number }) {
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid min-w-0 gap-1">
-                    <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
-                        {customer.customer_name}
-                    </h1>
-                    <p className="truncate font-mono text-sm text-muted-foreground tabular-nums">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">
+                            {customer.customer_name}
+                        </h1>
+                        <span className="shrink-0">
+                            {customer.isActive ? (
+                                <StatusPill tone="success">Active</StatusPill>
+                            ) : (
+                                <StatusPill tone="neutral">Inactive</StatusPill>
+                            )}
+                        </span>
+                    </div>
+                    <p className="truncate whitespace-nowrap font-mono text-sm text-muted-foreground tabular-nums">
                         {customer.customer_code}
                     </p>
                 </div>
-                {customer.isActive ? (
-                    <StatusBadge tone="success">Active</StatusBadge>
-                ) : (
-                    <StatusBadge tone="neutral">Inactive</StatusBadge>
-                )}
             </header>
 
             <Card className="shadow-none border-border overflow-hidden">
@@ -167,6 +184,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                             No assets currently held by this customer.
                         </p>
                     ) : (
+                        <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -183,7 +201,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                                             <span className="block max-w-56 truncate font-medium" title={h.itemName}>
                                                 {h.itemName}
                                             </span>
-                                            <span className="block max-w-40 truncate font-mono text-xs text-muted-foreground tabular-nums">
+                                            <span className="block max-w-40 truncate whitespace-nowrap font-mono text-xs text-muted-foreground tabular-nums">
                                                 {h.itemCode}
                                             </span>
                                         </TableCell>
@@ -191,17 +209,18 @@ export function CustomerDashboard({ id }: { id: number }) {
                                             {h.held} <span className="text-muted-foreground">of {h.quantity}</span>
                                         </TableCell>
                                         <TableCell>
-                                            <StatusBadge tone={h.status.toLowerCase() === "open" ? "info" : "warning"}>
-                                                {h.status}
-                                            </StatusBadge>
+                                            <StatusPill tone={h.status.toLowerCase() === "open" ? "info" : "warning"} className="shrink-0">
+                                                {assignmentLabel(h.status)}
+                                            </StatusPill>
                                         </TableCell>
-                                        <TableCell className="max-w-40 truncate text-sm tabular-nums">
-                                            {h.expectedReturnAt ?? "—"}
+                                        <TableCell className="max-w-40 truncate whitespace-nowrap text-sm tabular-nums">
+                                            {formatStamp(h.expectedReturnAt ?? null)}
                                         </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
                         </Table>
+                        </div>
                     )}
                 </CardContent>
             </Card>
@@ -214,6 +233,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                     {history.length === 0 ? (
                         <p className="px-6 pb-6 text-sm text-muted-foreground">No assignments on record.</p>
                     ) : (
+                        <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -231,7 +251,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                                             <span className="block max-w-56 truncate font-medium" title={h.itemName}>
                                                 {h.itemName}
                                             </span>
-                                            <span className="block max-w-40 truncate font-mono text-xs text-muted-foreground tabular-nums">
+                                            <span className="block max-w-40 truncate whitespace-nowrap font-mono text-xs text-muted-foreground tabular-nums">
                                                 {h.itemCode}
                                             </span>
                                         </TableCell>
@@ -240,22 +260,24 @@ export function CustomerDashboard({ id }: { id: number }) {
                                             {h.returnedQuantity > 0 ? ` (${h.returnedQuantity} returned)` : ""}
                                         </TableCell>
                                         <TableCell>
-                                            <StatusBadge
+                                            <StatusPill
                                                 tone={h.status.toLowerCase() === "open" ? "info" : "neutral"}
+                                                className="shrink-0"
                                             >
-                                                {h.status}
-                                            </StatusBadge>
+                                                {assignmentLabel(h.status)}
+                                            </StatusPill>
                                         </TableCell>
-                                        <TableCell className="max-w-40 truncate text-sm tabular-nums" title={h.taggedAt ?? ""}>
-                                            {h.taggedAt ?? "—"}
+                                        <TableCell className="max-w-40 truncate whitespace-nowrap text-sm tabular-nums" title={h.taggedAt ?? ""}>
+                                            {formatStamp(h.taggedAt ?? null)}
                                         </TableCell>
-                                        <TableCell className="max-w-40 truncate text-sm tabular-nums" title={h.closedAt ?? ""}>
-                                            {h.closedAt ?? "—"}
+                                        <TableCell className="max-w-40 truncate whitespace-nowrap text-sm tabular-nums" title={h.closedAt ?? ""}>
+                                            {formatStamp(h.closedAt ?? null)}
                                         </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
                         </Table>
+                        </div>
                     )}
                 </CardContent>
             </Card>

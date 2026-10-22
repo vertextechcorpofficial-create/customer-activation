@@ -1,12 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StatusPill } from "./StatusPill";
 import { AssetReportsListShell } from "./AssetReportsListShell";
 import { useAssetReports, type AssetReportTab } from "../hooks/useAssetReports";
 import type {
@@ -17,6 +25,11 @@ import type {
 
 function isRetired(value: LastPurchaseRow["is_retired"]): boolean {
     return value === true || value === 1;
+}
+
+function formatStamp(value: string | null | undefined): string {
+    if (!value) return "—";
+    return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
 }
 
 function formatMoney(value: number | string): string {
@@ -42,7 +55,7 @@ const lastPurchaseColumns: ColumnDef<LastPurchaseRow>[] = [
         header: "Code",
         cell: ({ row }) => (
             <span
-                className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                 title={row.original.item_code}
             >
                 {row.original.item_code}
@@ -62,7 +75,7 @@ const lastPurchaseColumns: ColumnDef<LastPurchaseRow>[] = [
         accessorKey: "quantity",
         header: "Quantity",
         cell: ({ row }) => (
-            <span className="block text-right tabular-nums">{row.original.quantity}</span>
+            <span className="block td-num">{row.original.quantity}</span>
         ),
     },
     {
@@ -70,10 +83,10 @@ const lastPurchaseColumns: ColumnDef<LastPurchaseRow>[] = [
         header: "Last purchase",
         cell: ({ row }) => (
             <span
-                className="block max-w-44 truncate text-sm tabular-nums text-muted-foreground"
+                className="block max-w-44 truncate whitespace-nowrap text-sm tabular-nums text-muted-foreground"
                 title={row.original.last_purchase_at}
             >
-                {row.original.last_purchase_at}
+                {formatStamp(row.original.last_purchase_at)}
             </span>
         ),
     },
@@ -82,9 +95,9 @@ const lastPurchaseColumns: ColumnDef<LastPurchaseRow>[] = [
         header: "Status",
         cell: ({ row }) =>
             isRetired(row.original.is_retired) ? (
-                <StatusBadge tone="neutral">Retired</StatusBadge>
+                <StatusPill tone="neutral" className="shrink-0">Retired</StatusPill>
             ) : (
-                <span className="text-sm text-muted-foreground">—</span>
+                <StatusPill tone="success" className="shrink-0">Active</StatusPill>
             ),
     },
 ];
@@ -95,7 +108,7 @@ const customerAssetColumns: ColumnDef<CustomerAssetLine>[] = [
         header: "Customer code",
         cell: ({ row }) => (
             <span
-                className="block max-w-32 truncate font-mono text-xs tabular-nums"
+                className="block max-w-32 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                 title={row.original.customer_code}
             >
                 {row.original.customer_code}
@@ -116,7 +129,7 @@ const customerAssetColumns: ColumnDef<CustomerAssetLine>[] = [
         header: "Asset code",
         cell: ({ row }) => (
             <span
-                className="block max-w-32 truncate font-mono text-xs tabular-nums"
+                className="block max-w-32 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                 title={row.original.item_code}
             >
                 {row.original.item_code}
@@ -136,7 +149,7 @@ const customerAssetColumns: ColumnDef<CustomerAssetLine>[] = [
         accessorKey: "quantity_out",
         header: "Qty out",
         cell: ({ row }) => (
-            <span className="block text-right tabular-nums">{row.original.quantity_out}</span>
+            <span className="block td-num">{row.original.quantity_out}</span>
         ),
     },
 ];
@@ -147,7 +160,7 @@ const valuationColumns: ColumnDef<ValuationRow>[] = [
         header: "Code",
         cell: ({ row }) => (
             <span
-                className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                 title={row.original.item_code}
             >
                 {row.original.item_code}
@@ -167,21 +180,21 @@ const valuationColumns: ColumnDef<ValuationRow>[] = [
         accessorKey: "quantity",
         header: "Quantity",
         cell: ({ row }) => (
-            <span className="block text-right tabular-nums">{row.original.quantity}</span>
+            <span className="block td-num">{row.original.quantity}</span>
         ),
     },
     {
         accessorKey: "unit_value",
         header: "Unit value",
         cell: ({ row }) => (
-            <span className="block text-right tabular-nums">{formatMoney(row.original.unit_value)}</span>
+            <span className="block whitespace-nowrap td-num">{formatMoney(row.original.unit_value)}</span>
         ),
     },
     {
         accessorKey: "total_value",
         header: "Total value",
         cell: ({ row }) => (
-            <span className="block text-right font-medium tabular-nums">
+            <span className="block whitespace-nowrap td-num font-medium">
                 {formatMoney(row.original.total_value)}
             </span>
         ),
@@ -191,7 +204,7 @@ const valuationColumns: ColumnDef<ValuationRow>[] = [
         header: "Status",
         cell: ({ row }) =>
             row.original.is_fully_depreciated ? (
-                <StatusBadge tone="warning">Fully depreciated</StatusBadge>
+                <StatusPill tone="warning" className="shrink-0">Fully depreciated</StatusPill>
             ) : (
                 <span className="text-sm text-muted-foreground">—</span>
             ),
@@ -228,6 +241,20 @@ export function AssetReportsModule() {
 
     const customerLines = useMemo(() => flattenCustomerAssets(customerAssets), [customerAssets]);
 
+    type StatusFilter = "all" | "active" | "retired";
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+    const filteredLastPurchase = useMemo(
+        () =>
+            lastPurchase.filter((row) => {
+                if (statusFilter === "active") return !isRetired(row.is_retired);
+                if (statusFilter === "retired") return isRetired(row.is_retired);
+                return true;
+            }),
+        [lastPurchase, statusFilter],
+    );
+
     const totals = useMemo(() => {
         let quantity = 0;
         let value = 0;
@@ -239,7 +266,7 @@ export function AssetReportsModule() {
         return { quantity, value };
     }, [valuation]);
 
-    const activeData = tab === "last-purchase" ? lastPurchase.length : tab === "customer-assets" ? customerLines.length : valuation.length;
+    const activeData = tab === "last-purchase" ? filteredLastPurchase.length : tab === "customer-assets" ? customerLines.length : valuation.length;
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
@@ -259,7 +286,7 @@ export function AssetReportsModule() {
                 onValueChange={(value) => setTab(value as AssetReportTab)}
                 className="space-y-4"
             >
-                <TabsList aria-label="Asset report sections">
+                <TabsList aria-label="Asset report sections" className="flex h-auto min-w-0 flex-wrap gap-1">
                     <TabsTrigger value="last-purchase">Last Purchase</TabsTrigger>
                     <TabsTrigger value="customer-assets">Customer → Assets</TabsTrigger>
                     <TabsTrigger value="valuation">Valuation</TabsTrigger>
@@ -268,22 +295,50 @@ export function AssetReportsModule() {
                 <TabsContent value="last-purchase" className="space-y-4">
                     <AssetReportsListShell
                         title="Last Purchase"
-                        description="Newest stock updates first; restocks land on top because edits refresh the timestamp."
+                        description={`Newest stock updates first; restocks land on top because edits refresh the timestamp. Showing ${filteredLastPurchase.length} of ${lastPurchase.length}.`}
                         columns={lastPurchaseColumns}
-                        data={lastPurchase}
+                        data={filteredLastPurchase}
                         isLoading={isLoading && tab === "last-purchase" && activeData === 0}
                         error={tab === "last-purchase" ? error : null}
                         onRefresh={() => refresh()}
                         searchKey="name"
                         emptyTitle="No assets yet"
                         emptyDescription="Assets appear here once items are registered."
+                        filters={
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <Select
+                                    value={statusFilter}
+                                    onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+                                >
+                                    <SelectTrigger aria-label="Filter by status" className="h-8 w-auto text-xs">
+                                        <SelectValue placeholder="All statuses" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All statuses</SelectItem>
+                                        <SelectItem value="active">Active</SelectItem>
+                                        <SelectItem value="retired">Retired</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {statusFilter !== "all" ? (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 shrink-0 px-2 text-xs"
+                                        onClick={() => setStatusFilter("all")}
+                                    >
+                                        Clear filters
+                                    </Button>
+                                ) : null}
+                            </div>
+                        }
                     />
                 </TabsContent>
 
                 <TabsContent value="customer-assets" className="space-y-4">
                     <AssetReportsListShell
                         title="Customer → Assets"
-                        description="Every asset currently placed with a customer, with quantities still out."
+                        description={`Every asset currently placed with a customer, with quantities still out. Showing ${customerLines.length} of ${customerLines.length}.`}
                         columns={customerAssetColumns}
                         data={customerLines}
                         isLoading={isLoading && tab === "customer-assets" && activeData === 0}
@@ -298,7 +353,7 @@ export function AssetReportsModule() {
                 <TabsContent value="valuation" className="space-y-4">
                     <AssetReportsListShell
                         title="Valuation"
-                        description="Depreciated value of on-hand stock as of the selected date."
+                        description={`Depreciated value of on-hand stock as of the selected date. Showing ${valuation.length} of ${valuation.length}.`}
                         columns={valuationColumns}
                         data={valuation}
                         isLoading={isLoading && tab === "valuation" && activeData === 0}
@@ -308,21 +363,32 @@ export function AssetReportsModule() {
                         emptyTitle="Nothing to value"
                         emptyDescription="Valuation appears here once items are registered."
                         filters={
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="valuation-as-of" className="shrink-0 text-sm text-muted-foreground">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <Label htmlFor="valuation-as-of" className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
                                     As of
                                 </Label>
                                 <Input
                                     id="valuation-as-of"
                                     type="date"
                                     value={asOf}
-                                    max={new Date().toISOString().slice(0, 10)}
+                                    max={todayIso}
                                     onChange={(event) => {
                                         if (event.target.value) setAsOf(event.target.value);
                                     }}
-                                    className="w-auto tabular-nums"
+                                    className="w-auto min-w-0 shrink-0 tabular-nums"
                                     aria-label="Valuation as-of date"
                                 />
+                                {asOf !== todayIso ? (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 shrink-0 px-2 text-xs"
+                                        onClick={() => setAsOf(todayIso)}
+                                    >
+                                        Reset date
+                                    </Button>
+                                ) : null}
                             </div>
                         }
                     />

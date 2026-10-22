@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -67,8 +68,8 @@ export function ReturnAssetDialog({ open, onOpenChange, assignment, onReturn }: 
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] sm:max-w-[480px]">
-                <DialogHeader>
+            <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[480px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle>Record return</DialogTitle>
                     <DialogDescription>
                         {assignment
@@ -76,7 +77,7 @@ export function ReturnAssetDialog({ open, onOpenChange, assignment, onReturn }: 
                             : "Record returned units."}
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 px-6 py-6">
                     <div className="grid gap-2">
                         <Label htmlFor="return-quantity">Returned quantity</Label>
                         <Input
@@ -114,10 +115,12 @@ export function ReturnAssetDialog({ open, onOpenChange, assignment, onReturn }: 
                         />
                     </div>
 
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                                Cancel
+                            </Button>
+                        </DialogClose>
                         <Button type="submit" disabled={isSubmitting || !assignment}>
                             Record return
                         </Button>

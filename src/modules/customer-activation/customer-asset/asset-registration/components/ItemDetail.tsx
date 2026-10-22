@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./StatusPill";
 import {
     Table,
     TableBody,
@@ -20,10 +20,24 @@ import {
 import { useAssetItem } from "../hooks/useAssetItem";
 import { lotValue, unitValue } from "../utils/valuation";
 
-function eventTone(event: string): "success" | "info" | "neutral" {
-    if (event === "registered" || event === "returned") return "success";
-    if (event === "tagged_to_customer") return "info";
+function eventTone(event: string): "info" | "warning" | "neutral" {
+    // Customer-facing events share one tone; stock/cost adjustments share another.
+    if (event === "registered" || event === "tagged_to_customer" || event === "returned") return "info";
+    if (event === "adjusted" || event === "quantity_adjusted") return "warning";
     return "neutral";
+}
+
+function formatStamp(value: string | null | undefined): string {
+    if (!value) return "—";
+    return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
+}
+
+function assignmentLabel(status: string): string {
+    const s = status.toLowerCase();
+    if (s === "open") return "Open";
+    if (s === "partial") return "Partial";
+    if (s === "returned") return "Returned";
+    return status;
 }
 
 export function ItemDetail({ id }: { id: number }) {
@@ -82,8 +96,8 @@ export function ItemDetail({ id }: { id: number }) {
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid min-w-0 gap-1">
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon-sm" asChild>
+                    <div className="flex min-w-0 items-center gap-2">
+                        <Button variant="ghost" size="icon-sm" className="shrink-0" asChild>
                             <Link
                                 href="/customer-activation/customer-asset/asset-registration"
                                 aria-label="Back to assets"
@@ -91,12 +105,14 @@ export function ItemDetail({ id }: { id: number }) {
                                 <ArrowLeft className="size-4" aria-hidden />
                             </Link>
                         </Button>
-                        <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl" title={item.name}>
+                        <h1 className="min-w-0 shrink truncate text-xl font-semibold tracking-tight sm:text-2xl" title={item.name}>
                             {item.name}
                         </h1>
-                        {retired ? <StatusBadge tone="neutral">Retired</StatusBadge> : <StatusBadge tone="success">Active</StatusBadge>}
+                        <span className="shrink-0">
+                            {retired ? <StatusPill tone="neutral">Retired</StatusPill> : <StatusPill tone="success">Active</StatusPill>}
+                        </span>
                     </div>
-                    <p className="truncate font-mono text-xs tabular-nums text-muted-foreground" title={item.item_code}>
+                    <p className="truncate whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground" title={item.item_code}>
                         {item.item_code}
                         {detail.group_name ? ` · ${detail.group_name}` : ""}
                         {item.category ? ` · ${item.category}` : ""}
@@ -244,11 +260,11 @@ export function ItemDetail({ id }: { id: number }) {
                                                 {Math.max(0, h.quantity - h.returned_quantity)}
                                             </TableCell>
                                             <TableCell className="px-4">
-                                                <StatusBadge tone={h.assignment_status === "open" ? "info" : "neutral"}>
-                                                    {h.assignment_status}
-                                                </StatusBadge>
+                                                <StatusPill tone={h.assignment_status === "open" ? "info" : "neutral"} className="shrink-0">
+                                                    {assignmentLabel(h.assignment_status)}
+                                                </StatusPill>
                                             </TableCell>
-                                            <TableCell className="px-6 tabular-nums">{h.expected_return ?? "—"}</TableCell>
+                                            <TableCell className="whitespace-nowrap px-6 tabular-nums">{formatStamp(h.expected_return ?? null)}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -269,8 +285,10 @@ export function ItemDetail({ id }: { id: number }) {
                         <ol className="grid gap-3">
                             {detail.history.map((h) => (
                                 <li key={h.id} className="flex flex-wrap items-center gap-2 text-sm">
-                                    <StatusBadge tone={eventTone(h.event)}>{h.event}</StatusBadge>
-                                    <span className="tabular-nums text-muted-foreground">{h.occurred_at}</span>
+                                    <span className="shrink-0">
+                                        <StatusPill tone={eventTone(h.event)}>{h.event}</StatusPill>
+                                    </span>
+                                    <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatStamp(h.occurred_at)}</span>
                                     {h.quantity_before !== null || h.quantity_after !== null ? (
                                         <span className="tabular-nums">
                                             {h.quantity_before ?? "—"} → {h.quantity_after ?? "—"}

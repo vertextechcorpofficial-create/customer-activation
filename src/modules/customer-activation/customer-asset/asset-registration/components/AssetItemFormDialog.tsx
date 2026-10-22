@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { z } from "zod";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -146,8 +147,8 @@ export function AssetItemFormDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] w-[95vw] overflow-y-auto sm:max-w-[560px]">
-                <DialogHeader>
+            <DialogContent className="max-h-[90vh] w-[95vw] gap-0 overflow-y-auto rounded-2xl p-0 sm:max-w-[560px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle>{editing ? "Edit asset" : "New asset"}</DialogTitle>
                     <DialogDescription>
                         {editing
@@ -155,7 +156,7 @@ export function AssetItemFormDialog({
                             : "Register a new asset into the inventory. A serial is required when registering a single unit."}
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 px-6 py-6">
                     <div className="grid gap-2">
                         <Label htmlFor="asset-name">Name</Label>
                         <Input
@@ -357,10 +358,12 @@ export function AssetItemFormDialog({
                             )}
                         />
                     ) : null}
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                                Cancel
+                            </Button>
+                        </DialogClose>
                         <Button type="submit" disabled={isSubmitting}>
                             {editing ? "Save changes" : "Register asset"}
                         </Button>

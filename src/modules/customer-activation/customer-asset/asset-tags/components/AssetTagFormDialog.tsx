@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -83,8 +84,8 @@ export function AssetTagFormDialog({ open, onOpenChange, tag, onCreate, onUpdate
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] sm:max-w-[500px]">
-                <DialogHeader>
+            <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle>{editing ? "Edit asset tag" : "New asset tag"}</DialogTitle>
                     <DialogDescription>
                         {editing
@@ -92,7 +93,7 @@ export function AssetTagFormDialog({ open, onOpenChange, tag, onCreate, onUpdate
                             : "Add a colour-coded label for customer assets."}
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 px-6 py-6">
                     <div className="grid gap-2">
                         <Label htmlFor="tag-code">Code</Label>
                         <Input
@@ -180,10 +181,12 @@ export function AssetTagFormDialog({ open, onOpenChange, tag, onCreate, onUpdate
                             )}
                         />
                     </div>
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                                Cancel
+                            </Button>
+                        </DialogClose>
                         <Button type="submit" disabled={isSubmitting}>
                             {editing ? "Save changes" : "Create asset tag"}
                         </Button>

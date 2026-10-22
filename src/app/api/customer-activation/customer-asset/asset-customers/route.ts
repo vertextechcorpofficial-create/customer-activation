@@ -15,11 +15,20 @@ export async function GET(request: Request) {
 
     try {
         const { searchParams } = new URL(request.url);
+        const statusParam = searchParams.get("status");
+        const status =
+            statusParam === "active" || statusParam === "inactive" ? statusParam : undefined;
+        const page = Math.max(0, Math.floor(Number(searchParams.get("page") ?? "0") || 0));
+        const pageSizeRaw = Math.floor(Number(searchParams.get("pageSize") ?? "10") || 10);
+        const pageSize = Math.min(50, Math.max(10, pageSizeRaw));
         return NextResponse.json({
             success: true,
             data: await listCustomers({
                 q: searchParams.get("q") ?? undefined,
                 onlyWithAssets: searchParams.get("withAssets") === "1",
+                status,
+                page,
+                pageSize,
             }),
         });
     } catch (error) {

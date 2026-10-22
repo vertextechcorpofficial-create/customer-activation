@@ -37,7 +37,7 @@ async function directus<T>(path: string, init?: RequestInit): Promise<DirectusEn
 }
 
 export async function listGroups(): Promise<AssetGroup[]> {
-    const body = await directus<AssetGroup[]>(`/items/${COLLECTION}?sort=group_name&limit=-1`);
+    const body = await directus<AssetGroup[]>(`/items/${COLLECTION}?sort=group_name&limit=-1&fields=id,group_code,group_name,description,is_active,created_at,updated_at`);
     return body.data ?? [];
 }
 

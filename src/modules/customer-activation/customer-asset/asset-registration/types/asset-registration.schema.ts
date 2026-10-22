@@ -95,7 +95,7 @@ export const CreateAssetItemSchema = z
         message: "A serial is required when registering a single unit",
         path: ["serial"],
     })
-    .refine((data) => data.date_acquired <= new Date().toISOString().slice(0, 10), {
+    .refine((data) => data.date_acquired <= new Date().toLocaleString("sv-SE", { timeZone: "Asia/Manila" }).slice(0, 10), {
         message: "Acquisition date cannot be in the future",
         path: ["date_acquired"],
     });

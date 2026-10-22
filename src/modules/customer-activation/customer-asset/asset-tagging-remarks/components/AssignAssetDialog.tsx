@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -123,14 +124,14 @@ export function AssignAssetDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] sm:max-w-[520px]">
-                <DialogHeader>
+            <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[520px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle>Tag asset to customer</DialogTitle>
                     <DialogDescription>
                         Assign an available asset to a customer. Availability is re-checked on save.
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 px-6 py-6">
                     <div className="grid gap-2">
                         <Label htmlFor="assign-customer">Customer</Label>
                         <Input
@@ -274,10 +275,12 @@ export function AssignAssetDialog({
                         ) : null}
                     </div>
 
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                                Cancel
+                            </Button>
+                        </DialogClose>
                         <Button type="submit" disabled={isSubmitting}>
                             Tag asset
                         </Button>

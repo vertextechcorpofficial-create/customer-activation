@@ -11,6 +11,7 @@ export interface ListShellProps<T> {
     onRefresh?: () => void;
     filters?: ReactNode;
     action?: ReactNode;
+    cards?: ReactNode;
     searchKey?: string;
     onSearch?: (value: string) => void;
     emptyTitle?: string;

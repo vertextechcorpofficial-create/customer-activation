@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import type { ZodError } from "zod";
+import { z, type ZodError } from "zod";
 
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 import { CreateAssetItemSchema } from "@/modules/customer-activation/customer-asset/asset-registration/types/asset-registration.schema";
@@ -49,9 +49,17 @@ export async function POST(request: Request) {
     }
 
     const raw = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const tagIds = Array.isArray(raw?.tag_ids)
-        ? (raw?.tag_ids as unknown[]).filter((t): t is number => Number.isInteger(t) && (t as number) > 0)
-        : [];
+    let tagIds: number[] = [];
+    if (raw?.tag_ids !== undefined) {
+        const tagCheck = z.array(z.number().int().positive()).max(50).safeParse(raw.tag_ids);
+        if (!tagCheck.success) {
+            return NextResponse.json(
+                { success: false, message: "Invalid tag_ids", errors: fieldErrors(tagCheck.error) },
+                { status: 400 },
+            );
+        }
+        tagIds = tagCheck.data;
+    }
     const parsed = CreateAssetItemSchema.safeParse(raw);
     if (!parsed.success) {
         return NextResponse.json(

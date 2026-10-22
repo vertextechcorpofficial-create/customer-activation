@@ -25,7 +25,7 @@ interface DirectusEnvelope<T> {
 }
 
 export async function listTags(): Promise<AssetTag[]> {
-    const res = await fetch(`${BASE}/items/${COLLECTION}?sort=tag_name&limit=-1`, {
+    const res = await fetch(`${BASE}/items/${COLLECTION}?sort=tag_name&limit=-1&fields=id,tag_code,tag_name,color,description,is_active,created_at,updated_at`, {
         headers: authHeaders(),
         cache: "no-store",
     });
@@ -71,11 +71,27 @@ export async function updateTag(
     input: UpdateAssetTagInput,
     actorId: number | null,
 ): Promise<AssetTag> {
+    const patch: Record<string, unknown> = { updated_by: actorId, updated_at: phNow() };
+    if (input.tag_code !== undefined) {
+        patch.tag_code = input.tag_code;
+    }
+    if (input.tag_name !== undefined) {
+        patch.tag_name = input.tag_name;
+    }
+    if (input.color !== undefined) {
+        patch.color = input.color;
+    }
+    if (input.description !== undefined) {
+        patch.description = input.description;
+    }
+    if (input.is_active !== undefined) {
+        patch.is_active = input.is_active ? 1 : 0;
+    }
     const res = await fetch(`${BASE}/items/${COLLECTION}/${id}`, {
         method: "PATCH",
         headers: authHeaders(),
         cache: "no-store",
-        body: JSON.stringify({ ...input, updated_by: actorId, updated_at: phNow() }),
+        body: JSON.stringify(patch),
     });
     if (!res.ok) {
         const text = await res.text();

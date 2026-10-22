@@ -7,7 +7,14 @@ import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { StatusPill } from "./StatusPill";
 import { Switch } from "@/components/ui/switch";
 import { AssetCustomersListShell } from "./AssetCustomersListShell";
 import { useAssetCustomers } from "../hooks/useAssetCustomers";
@@ -21,11 +28,24 @@ export function AssetCustomersModule() {
         setQuery,
         onlyWithAssets,
         setOnlyWithAssets,
+        status,
+        setStatus,
+        total,
+        pageCount,
+        pagination,
+        onPaginationChange,
         customers,
         isLoading,
         error,
         refresh,
     } = useAssetCustomers();
+
+    const hasActiveFilters = query.trim() !== "" || status !== "all" || onlyWithAssets;
+    const clearFilters = () => {
+        setQuery("");
+        setStatus("all");
+        setOnlyWithAssets(false);
+    };
 
     const columns: ColumnDef<CustomerListRow>[] = [
         {
@@ -33,7 +53,7 @@ export function AssetCustomersModule() {
             header: "Code",
             cell: ({ row }) => (
                 <span
-                    className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                    className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                     title={row.original.customer_code}
                 >
                     {row.original.customer_code}
@@ -54,23 +74,23 @@ export function AssetCustomersModule() {
             header: "Status",
             cell: ({ row }) =>
                 row.original.isActive ? (
-                    <StatusBadge tone="success">Active</StatusBadge>
+                    <StatusPill tone="success">Active</StatusPill>
                 ) : (
-                    <StatusBadge tone="neutral">Inactive</StatusBadge>
+                    <StatusPill tone="neutral">Inactive</StatusPill>
                 ),
         },
         {
             accessorKey: "assetsHeld",
             header: "Assets held",
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums">{row.original.assetsHeld}</span>
+                <span className="block td-num font-mono text-xs">{row.original.assetsHeld}</span>
             ),
         },
         {
             accessorKey: "openAssignments",
             header: "Open assignments",
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums">{row.original.openAssignments}</span>
+                <span className="block td-num font-mono text-xs">{row.original.openAssignments}</span>
             ),
         },
         {
@@ -95,6 +115,9 @@ export function AssetCustomersModule() {
                     <p className="text-sm text-muted-foreground">
                         Browse customers and open their asset dashboard.
                     </p>
+                    <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                        {isLoading ? "Loading customers…" : `${total.toLocaleString()} customers`}
+                    </p>
                 </div>
             </header>
 
@@ -106,16 +129,33 @@ export function AssetCustomersModule() {
                 isLoading={isLoading}
                 error={error}
                 onRefresh={refresh}
+                manualPagination
+                pagination={pagination}
+                onPaginationChange={onPaginationChange}
+                pageCount={pageCount}
                 filters={
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Input
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             placeholder="Search customers…"
                             aria-label="Search customers"
-                            className="h-8 w-44 sm:w-56"
+                            className="h-8 w-44 min-w-0 sm:w-56"
                         />
-                        <div className="flex items-center gap-1.5">
+                        <Select
+                            value={status}
+                            onValueChange={(v) => setStatus(v as "all" | "active" | "inactive")}
+                        >
+                            <SelectTrigger aria-label="Filter by status" className="h-8 w-28">
+                                <SelectValue placeholder="Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <div className="flex shrink-0 items-center gap-1.5">
                             <Switch
                                 id="with-assets-only"
                                 checked={onlyWithAssets}
@@ -126,10 +166,54 @@ export function AssetCustomersModule() {
                                 With assets only
                             </Label>
                         </div>
+                        {hasActiveFilters ? (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={clearFilters}
+                                className="shrink-0"
+                            >
+                                Clear filters
+                            </Button>
+                        ) : null}
                     </div>
                 }
                 emptyTitle="No customers found"
-                emptyDescription="Try a different search, or turn off the assets-only filter."
+                emptyDescription="Try a different search or turn off the filters."
+                cards={
+                    isLoading || customers.length === 0 ? null : (
+                        <ul className="divide-y">
+                            {customers.map((c) => (
+                                <li key={c.id} className="grid gap-2 px-4 py-3">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                            <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                                                {c.customer_code}
+                                            </span>{" "}
+                                            <span className="truncate">{c.customer_name}</span>
+                                        </p>
+                                        <span className="shrink-0">
+                                            {c.isActive ? (
+                                                <StatusPill tone="success">Active</StatusPill>
+                                            ) : (
+                                                <StatusPill tone="neutral">Inactive</StatusPill>
+                                            )}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs tabular-nums text-muted-foreground">
+                                        {c.assetsHeld} assets held · {c.openAssignments} open
+                                    </p>
+                                    <Button variant="outline" size="sm" className="min-h-11 w-full whitespace-nowrap" asChild>
+                                        <Link href={`${DETAIL_BASE}/${c.id}`} aria-label={`View ${c.customer_name}`}>
+                                            <Eye className="size-4" aria-hidden />
+                                            View
+                                        </Link>
+                                    </Button>
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                }
             />
         </div>
     );

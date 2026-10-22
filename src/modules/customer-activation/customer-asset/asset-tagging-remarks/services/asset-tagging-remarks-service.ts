@@ -13,6 +13,8 @@ const BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
 const TAGGING = "customer_asset_tagging";
 const ITEM = "customer_asset_item";
 const CUSTOMER = "customer";
+const ITEM_TAG = "customer_asset_item_tag";
+const TAG = "customer_asset_tag";
 const HISTORY = "customer_asset_history";
 
 // Thrown for guard violations (availability, over-return). API maps these to 400.
@@ -138,6 +140,18 @@ interface AssetItemRow {
     is_retired: boolean | 0 | 1;
 }
 
+interface ItemTagRow {
+    id: number;
+    item_id: number;
+    tag_id: number;
+}
+
+interface TagRow {
+    id: number;
+    tag_name: string;
+    color: string | null;
+}
+
 interface CustomerRow {
     id: number;
     customer_code: string | null;
@@ -157,20 +171,51 @@ export async function listAssignments(filter?: { customerId?: number }): Promise
 
     const itemIds = [...new Set(rows.map((r) => r.item_id))];
     const customerIds = [...new Set(rows.map((r) => r.customer_id))];
-    const [items, customers] = await Promise.all([
+    const [items, customers, itemTagLinks] = await Promise.all([
         directusGet<AssetItemRow>(`${ITEM}?limit=-1&filter[id][_in]=${itemIds.join(",")}`),
         directusGet<CustomerRow>(
             `${CUSTOMER}?limit=-1&filter[id][_in]=${customerIds.join(",")}&fields=id,customer_code,customer_name`,
         ),
+        directusGet<ItemTagRow>(
+            `${ITEM_TAG}?limit=-1&filter[item_id][_in]=${itemIds.join(",")}&fields=id,item_id,tag_id`,
+        ),
     ]);
+    const tagIds = [...new Set(itemTagLinks.map((l) => l.tag_id))];
+    const tagRows =
+        tagIds.length > 0
+            ? await directusGet<TagRow>(
+                  `${TAG}?limit=-1&filter[id][_in]=${tagIds.join(",")}&fields=id,tag_name,color`,
+              )
+            : [];
     const itemById = new Map(items.map((i) => [i.id, i]));
     const customerById = new Map(customers.map((c) => [c.id, c]));
+    const tagById = new Map(tagRows.map((t) => [t.id, t]));
+    const tagIdsByItem = new Map<number, number[]>();
+    for (const link of itemTagLinks) {
+        const list = tagIdsByItem.get(link.item_id) ?? [];
+        list.push(link.tag_id);
+        tagIdsByItem.set(link.item_id, list);
+    }
     const now = Date.now();
 
     return rows.map((row) => {
         const item = itemById.get(row.item_id);
         const customer = customerById.get(row.customer_id);
         const remaining = Math.max(0, row.quantity - row.returned_quantity);
+        let overdue = false;
+        if (row.assignment_status !== "returned" && row.expected_return_at != null) {
+            const t = new Date(row.expected_return_at.replace(" ", "T")).getTime();
+            if (Number.isNaN(t)) {
+                console.error(`[asset-tagging-remarks] unparseable expected_return_at for tagging ${row.id}:`, row.expected_return_at);
+            } else {
+                overdue = t < now;
+            }
+        }
+        const tags = (tagIdsByItem.get(row.item_id) ?? [])
+            .map((tagId) => tagById.get(tagId))
+            .filter((t): t is TagRow => Boolean(t))
+            .sort((a, b) => a.tag_name.localeCompare(b.tag_name))
+            .map((t) => ({ id: t.id, tag_name: t.tag_name, color: t.color ?? null }));
         return {
             id: row.id,
             customer_id: row.customer_id,
@@ -179,6 +224,7 @@ export async function listAssignments(filter?: { customerId?: number }): Promise
             item_id: row.item_id,
             item_code: item?.item_code ?? `#${row.item_id}`,
             item_name: item?.name ?? "Unknown item",
+            tags,
             quantity: row.quantity,
             returned_quantity: row.returned_quantity,
             remaining,
@@ -190,10 +236,7 @@ export async function listAssignments(filter?: { customerId?: number }): Promise
             condition_in: row.condition_in ?? null,
             return_remarks: row.return_remarks ?? null,
             assignment_status: row.assignment_status,
-            overdue:
-                row.assignment_status !== "returned" &&
-                row.expected_return_at != null &&
-                new Date(row.expected_return_at.replace(" ", "T")).getTime() < now,
+            overdue,
         };
     });
 }
@@ -201,8 +244,9 @@ export async function listAssignments(filter?: { customerId?: number }): Promise
 export async function searchCustomers(query: string): Promise<CustomerOption[]> {
     const q = query.trim();
     if (!q) return [];
+    const term = encodeURIComponent(q);
     const rows = await directusGet<CustomerRow>(
-        `${CUSTOMER}?limit=20&filter[customer_name][_icontains]=${encodeURIComponent(q)}&fields=id,customer_code,customer_name,isActive`,
+        `${CUSTOMER}?limit=20&filter[_or][0][customer_name][_icontains]=${term}&filter[_or][1][customer_code][_icontains]=${term}&filter[isActive][_eq]=1&fields=id,customer_code,customer_name,isActive`,
     );
     return rows.map((r) => ({
         id: r.id,
@@ -274,6 +318,22 @@ export async function assignToCustomer(
         audit: { action: "tagged_to_customer", actor_id: actorId, at: now },
     });
 
+    // Post-write guard: a concurrent tag-out may have oversold the item.
+    const fresh = await directusGet<Tagging>(
+        `${TAGGING}?limit=-1&filter[item_id][_eq]=${input.item_id}&filter[assignment_status][_in]=open,partial&fields=id,quantity,returned_quantity`,
+    );
+    if (quantityOut(fresh) > item.quantity) {
+        try {
+            await directusDelete(TAGGING, tagging.id);
+        } catch {
+            // best-effort compensation only
+        }
+        const freshAvailable = quantityAvailable(item.quantity, fresh);
+        throw new TaggingUserError(
+            `Only ${freshAvailable} unit(s) of "${item.name}" are available; requested ${input.quantity}.`,
+        );
+    }
+
     try {
         await directusPost(HISTORY, {
             item_id: input.item_id,
@@ -330,6 +390,12 @@ export async function returnFromCustomer(
     }
 
     const now = phNow();
+    const item = await directusGetOne<AssetItemRow>(ITEM, tagging.item_id).catch(() => null);
+    const outstandingPre = await directusGet<Tagging>(
+        `${TAGGING}?limit=-1&filter[item_id][_eq]=${tagging.item_id}&filter[assignment_status][_in]=open,partial&fields=id,quantity,returned_quantity`,
+    );
+    const availableBefore = item ? quantityAvailable(item.quantity, outstandingPre) : 0;
+
     const fullyReturned = cumulative >= tagging.quantity;
     const patched = await directusPatch<Tagging>(TAGGING, id, {
         returned_quantity: cumulative,
@@ -342,13 +408,24 @@ export async function returnFromCustomer(
         audit: { action: "returned", actor_id: actorId, at: now },
     });
 
-    const item = await directusGetOne<AssetItemRow>(ITEM, tagging.item_id).catch(() => null);
-    const outstanding = await directusGet<Tagging>(
-        `${TAGGING}?limit=-1&filter[item_id][_eq]=${tagging.item_id}&filter[assignment_status][_in]=open,partial&fields=id,quantity,returned_quantity`,
-    );
-    // The patched row still reads "open/partial" upstream, so compute availability
-    // against the pre-return snapshot, then add this return back.
-    const availableBefore = item ? quantityAvailable(item.quantity, outstanding) : 0;
+    // Post-write guard: a concurrent return may have over-returned this assignment.
+    const fresh = await directusGetOne<Tagging>(TAGGING, id).catch(() => null);
+    if (fresh && fresh.returned_quantity > fresh.quantity) {
+        try {
+            await directusPatch(TAGGING, id, {
+                returned_quantity: tagging.returned_quantity,
+                closed_at: tagging.closed_at ?? null,
+                assignment_status: tagging.assignment_status,
+                updated_by: actorId,
+                updated_at: now,
+            });
+        } catch {
+            // best-effort compensation only
+        }
+        throw new TaggingUserError(
+            `Only ${tagging.quantity - tagging.returned_quantity} unit(s) remain to be returned.`,
+        );
+    }
 
     try {
         await directusPost(HISTORY, {

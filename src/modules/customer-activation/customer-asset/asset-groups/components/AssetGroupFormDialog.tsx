@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -69,15 +70,15 @@ export function AssetGroupFormDialog({ open, onOpenChange, editing, onSubmit }: 
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
+            <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle>{editing ? "Edit asset group" : "New asset group"}</DialogTitle>
                     <DialogDescription>
                         {editing ? "Rename the asset group or change its availability." : "Add an asset group for tagging inventory."}
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4 px-6 py-6">
                         <FormField
                             control={form.control}
                             name="group_code"
@@ -149,10 +150,12 @@ export function AssetGroupFormDialog({ open, onOpenChange, editing, onSubmit }: 
                                 </FormItem>
                             )}
                         />
-                        <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-                                Cancel
-                            </Button>
+                        <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                            <DialogClose asChild>
+                                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+                                    Cancel
+                                </Button>
+                            </DialogClose>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
                                 {editing ? "Save changes" : "Create asset group"}

@@ -1,5 +1,11 @@
 import type { AssignmentStatus } from "./asset-tagging-remarks.schema";
 
+export interface AssignmentTag {
+    id: number;
+    tag_name: string;
+    color: string | null;
+}
+
 export interface AssignmentView {
     id: number;
     customer_id: number;
@@ -8,6 +14,8 @@ export interface AssignmentView {
     item_id: number;
     item_code: string;
     item_name: string;
+    /** Tags linked to the item via customer_asset_item_tag (colour dots on the row). */
+    tags: AssignmentTag[];
     quantity: number;
     returned_quantity: number;
     remaining: number;

@@ -11,9 +11,13 @@ export interface ListShellProps<T> {
     onRefresh?: () => void;
     filters?: ReactNode;
     action?: ReactNode;
+    cards?: ReactNode;
     searchKey?: string;
     onSearch?: (value: string) => void;
     emptyTitle?: string;
     emptyDescription?: string;
     pageCount?: number;
+    manualPagination?: boolean;
+    pagination?: { pageIndex: number; pageSize: number };
+    onPaginationChange?: (pagination: { pageIndex: number; pageSize: number }) => void;
 }

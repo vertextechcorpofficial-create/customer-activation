@@ -11,6 +11,7 @@ const NOTE_COLLECTION = "customer_asset_note";
 
 interface DirectusEnvelope<T> {
     data?: T;
+    meta?: { filter_count?: number; total_count?: number };
     errors?: Array<{ message?: string }>;
 }
 
@@ -68,21 +69,26 @@ export interface CustomerCounts {
     openAssignments: number;
 }
 
-// One tagging fetch, grouped in JS: open/partial rows contribute
-// quantity−returned to assetsHeld and one open assignment each.
-export async function countsByCustomer(): Promise<Map<number, CustomerCounts>> {
-    const body = await directus<
-        Array<{
-            customer_id: number;
-            quantity: number | string;
-            returned_quantity: number | string;
-            assignment_status: string;
-        }>
-    >(
-        `/items/${TAGGING_COLLECTION}?limit=-1&fields=customer_id,quantity,returned_quantity,assignment_status`,
-    );
+export interface CustomerListPage {
+    rows: CustomerListRow[];
+    total: number;
+}
+
+interface TaggingCountRow {
+    customer_id: number;
+    quantity: number | string;
+    returned_quantity: number | string;
+    assignment_status: string;
+}
+
+// Shared grouping: open/partial rows contribute quantity−returned to
+// assetsHeld and one open assignment each; ids with only closed rows
+// ids with only closed rows are still present in the map (with
+// openAssignments 0) for the toggle-off counts display; the with-assets
+// filter excludes them via `openAssignments > 0`.
+function groupTaggingCounts(rows: TaggingCountRow[]): Map<number, CustomerCounts> {
     const counts = new Map<number, CustomerCounts>();
-    for (const row of body.data ?? []) {
+    for (const row of rows) {
         const id = Number(row.customer_id);
         if (!Number.isFinite(id)) continue;
         const entry = counts.get(id) ?? { assetsHeld: 0, openAssignments: 0 };
@@ -98,25 +104,110 @@ export async function countsByCustomer(): Promise<Map<number, CustomerCounts>> {
     return counts;
 }
 
+// Module-scope cache for the full tagging counts map: page turns and
+// keystrokes while the toggle is on reuse it for ~30s instead of
+// re-downloading the whole tagging table per request. Errors are never
+// cached; concurrent callers share the in-flight promise.
+const COUNTS_CACHE_TTL_MS = 30_000;
+let countsCache: { at: number; value: Map<number, CustomerCounts> } | null = null;
+let countsInflight: { at: number; promise: Promise<Map<number, CustomerCounts>> } | null = null;
+
+// One tagging fetch, grouped in JS: open/partial rows contribute
+// quantity−returned to assetsHeld and one open assignment each.
+export async function countsByCustomer(): Promise<Map<number, CustomerCounts>> {
+    const now = Date.now();
+    if (countsCache && now - countsCache.at < COUNTS_CACHE_TTL_MS) return countsCache.value;
+    if (countsInflight && now - countsInflight.at < COUNTS_CACHE_TTL_MS) return countsInflight.promise;
+    let resolveInflight!: (value: Map<number, CustomerCounts>) => void;
+    let rejectInflight!: (err: unknown) => void;
+    const promise = new Promise<Map<number, CustomerCounts>>((resolve, reject) => {
+        resolveInflight = resolve;
+        rejectInflight = reject;
+    });
+    countsInflight = { at: now, promise };
+    try {
+        const body = await directus<TaggingCountRow[]>(
+            `/items/${TAGGING_COLLECTION}?limit=-1&fields=customer_id,quantity,returned_quantity,assignment_status`,
+        );
+        const grouped = groupTaggingCounts(body.data ?? []);
+        countsCache = { at: Date.now(), value: grouped };
+        resolveInflight(grouped);
+        return grouped;
+    } catch (err) {
+        // Never cache errors — clear so the next call retries.
+        countsCache = countsCache && Date.now() - countsCache.at < COUNTS_CACHE_TTL_MS ? countsCache : null;
+        rejectInflight(err);
+        throw err;
+    } finally {
+        if (countsInflight?.promise === promise) countsInflight = null;
+    }
+}
+
+// Counts for one visible page only — one filtered tagging query.
+export async function countsForIds(ids: number[]): Promise<Map<number, CustomerCounts>> {
+    if (ids.length === 0) return new Map();
+    const body = await directus<TaggingCountRow[]>(
+        `/items/${TAGGING_COLLECTION}?limit=-1&filter[customer_id][_in]=${ids.join(",")}&fields=customer_id,quantity,returned_quantity,assignment_status`,
+    );
+    return groupTaggingCounts(body.data ?? []);
+}
+
 export async function listCustomers(options?: {
     q?: string;
     onlyWithAssets?: boolean;
-}): Promise<CustomerListRow[]> {
+    status?: "active" | "inactive";
+    page?: number;
+    pageSize?: number;
+}): Promise<CustomerListPage> {
     const q = options?.q?.trim();
+    const page = Math.max(0, Math.floor(options?.page ?? 0));
+    const pageSize = Math.min(50, Math.max(1, Math.floor(options?.pageSize ?? 10)));
     const params = new URLSearchParams({
         "sort": "customer_name",
-        "limit": "-1",
+        "limit": String(pageSize),
+        "offset": String(page * pageSize),
+        "meta": "filter_count",
         "fields": "id,customer_code,customer_name,isActive",
     });
-    // Directus filter params use bracket syntax; URLSearchParams encodes them.
-    const filterKey = "filter[customer_name][_icontains]";
+    const filterParts: string[] = [];
+    if (q) {
+        filterParts.push(
+            `${encodeURIComponent("filter[_or][0][customer_name][_icontains]")}=${encodeURIComponent(q)}`,
+            `${encodeURIComponent("filter[_or][1][customer_code][_icontains]")}=${encodeURIComponent(q)}`,
+        );
+    }
+    if (options?.status === "active") {
+        filterParts.push(`${encodeURIComponent("filter[isActive][_eq]")}=1`);
+    } else if (options?.status === "inactive") {
+        filterParts.push(`${encodeURIComponent("filter[isActive][_eq]")}=0`);
+    }
+    let fullCounts: Map<number, CustomerCounts> | null = null;
+    if (options?.onlyWithAssets) {
+        fullCounts = await countsByCustomer();
+        // DELIBERATE SEMANTIC CHANGE: the list column counts open/partial
+        // holdings only, so the toggle now keeps customers with at least one
+        // open/partial tagging (openAssignments > 0). Previously any ever-
+        // tagged id passed — including fully-returned customers rendering
+        // "0 assets held" — contradicting its own column.
+        const ids = [...fullCounts.entries()]
+            .filter(([, c]) => c.openAssignments > 0)
+            .map(([id]) => id);
+        if (ids.length === 0) return { rows: [], total: 0 };
+        // Directus accepts long _in lists; the page is still capped by limit.
+        filterParts.push(`${encodeURIComponent("filter[id][_in]")}=${ids.join(",")}`);
+    }
     const base = `/items/${CUSTOMER_COLLECTION}?${params.toString()}`;
-    const url = q ? `${base}&${encodeURIComponent(filterKey)}=${encodeURIComponent(q)}` : base;
-    const [body, counts] = await Promise.all([
-        directus<Array<Record<string, unknown>>>(url),
-        countsByCustomer(),
-    ]);
-    const rows: CustomerListRow[] = (body.data ?? [])
+    const url = filterParts.length > 0 ? `${base}&${filterParts.join("&")}` : base;
+    const body = await directus<Array<Record<string, unknown>>>(url);
+    const data = body.data ?? [];
+    const total = body.meta?.filter_count ?? data.length;
+    const validIds = data
+        .map((row) => Number(row.id))
+        .filter((id) => Number.isFinite(id));
+    // With-assets already fetched the full map — reuse it; otherwise
+    // fetch counts for the visible page only.
+    const counts = fullCounts ?? (await countsForIds(validIds));
+    const rows: CustomerListRow[] = data
         .filter((row) => Number.isFinite(Number(row.id)))
         .map((row) => {
             const id = Number(row.id);
@@ -130,8 +221,7 @@ export async function listCustomers(options?: {
                 openAssignments: count?.openAssignments ?? 0,
             };
         });
-    // "with assets only" keeps ids present in taggings (any tagging row).
-    return options?.onlyWithAssets ? rows.filter((row) => counts.has(row.id)) : rows;
+    return { rows, total };
 }
 
 export interface Holding {

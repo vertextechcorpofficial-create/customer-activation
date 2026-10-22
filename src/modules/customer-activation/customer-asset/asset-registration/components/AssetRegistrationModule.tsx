@@ -8,6 +8,7 @@ import { Eye, Pencil, Plus, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
     Select,
     SelectContent,
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
     DialogFooter,
@@ -29,10 +31,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { AssetListShell } from "./AssetListShell";
 import { AssetItemFormDialog } from "./AssetItemFormDialog";
+import { StatusPill } from "./StatusPill";
+import { TagFilterCombobox } from "./TagFilterCombobox";
 import { useAssetItems } from "../hooks/useAssetItems";
 import type { EnrichedAssetItem } from "../services/asset-registration-service";
 
@@ -80,7 +83,7 @@ export function AssetRegistrationModule() {
                 header: "Code",
                 cell: ({ row }) => (
                     <span
-                        className="block max-w-36 truncate font-mono text-xs tabular-nums"
+                        className="block max-w-36 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                         title={row.original.item_code}
                     >
                         {row.original.item_code}
@@ -115,7 +118,7 @@ export function AssetRegistrationModule() {
                     row.original.tags.length === 0 ? (
                         <span className="text-xs text-muted-foreground">—</span>
                     ) : (
-                        <span className="flex max-w-56 flex-wrap items-center gap-1">
+                        <span className="flex min-w-0 max-w-56 flex-wrap items-center gap-1">
                             {row.original.tags.slice(0, 3).map((tag) => (
                                 <span
                                     key={tag.id}
@@ -142,28 +145,28 @@ export function AssetRegistrationModule() {
                 accessorKey: "quantity",
                 header: "Qty",
                 cell: ({ row }) => (
-                    <span className="tabular-nums">{row.original.quantity}</span>
+                    <span className="td-num block">{row.original.quantity}</span>
                 ),
             },
             {
                 accessorKey: "quantity_out",
                 header: "Out",
                 cell: ({ row }) => (
-                    <span className="tabular-nums">{row.original.quantity_out}</span>
+                    <span className="td-num block">{row.original.quantity_out}</span>
                 ),
             },
             {
                 accessorKey: "quantity_available",
                 header: "Available",
                 cell: ({ row }) => (
-                    <span className="tabular-nums">{row.original.quantity_available}</span>
+                    <span className="td-num block">{row.original.quantity_available}</span>
                 ),
             },
             {
                 accessorKey: "unit_value",
                 header: "Unit value",
                 cell: ({ row }) => (
-                    <span className="tabular-nums">{row.original.unit_value.toFixed(2)}</span>
+                    <span className="td-num block">{row.original.unit_value.toFixed(2)}</span>
                 ),
             },
             {
@@ -171,9 +174,9 @@ export function AssetRegistrationModule() {
                 header: "Status",
                 cell: ({ row }) =>
                     isRetired(row.original.is_retired) ? (
-                        <StatusBadge tone="neutral">Retired</StatusBadge>
+                        <StatusPill tone="neutral">Retired</StatusPill>
                     ) : (
-                        <StatusBadge tone="success">Active</StatusBadge>
+                        <StatusPill tone="success">Active</StatusPill>
                     ),
             },
             {
@@ -219,40 +222,28 @@ export function AssetRegistrationModule() {
     );
 
     const filters = (
-        <div className="flex flex-wrap items-center gap-2">
-            <Select
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <SearchableSelect
+                options={[
+                    { value: "all", label: "All groups" },
+                    { value: "none", label: "No group" },
+                    ...groups.map((g) => ({ value: String(g.id), label: g.group_name })),
+                ]}
                 value={groupFilter === "" ? "all" : groupFilter}
                 onValueChange={(v) => setGroupFilter(v === "all" ? "" : v)}
-            >
-                <SelectTrigger aria-label="Filter by group" className="h-8 w-auto text-xs">
-                    <SelectValue placeholder="All groups" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">All groups</SelectItem>
-                    <SelectItem value="none">No group</SelectItem>
-                    {groups.map((g) => (
-                        <SelectItem key={g.id} value={String(g.id)}>
-                            {g.group_name}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-            <Select
+                placeholder="All groups"
+                className="h-8 w-auto min-w-36 text-xs"
+            />
+            <TagFilterCombobox
+                options={[
+                    { value: "all", label: "All tags" },
+                    ...tags.map((t) => ({ value: String(t.id), label: t.tag_name, color: t.color ?? null })),
+                ]}
                 value={tagFilter === "" ? "all" : tagFilter}
                 onValueChange={(v) => setTagFilter(v === "all" ? "" : v)}
-            >
-                <SelectTrigger aria-label="Filter by tag" className="h-8 w-auto text-xs">
-                    <SelectValue placeholder="All tags" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="all">All tags</SelectItem>
-                    {tags.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                            {t.tag_name}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+                placeholder="All tags"
+                className="h-8 w-auto min-w-36 text-xs"
+            />
             <Select value={availability} onValueChange={(v) => setAvailability(v as Availability)}>
                 <SelectTrigger aria-label="Filter by availability" className="h-8 w-auto text-xs tabular-nums">
                     <SelectValue placeholder="All stock" />
@@ -267,6 +258,21 @@ export function AssetRegistrationModule() {
                 <Switch checked={showRetired} onCheckedChange={setShowRetired} aria-label="Show retired assets" />
                 Retired
             </Label>
+            {groupFilter !== "" || tagFilter !== "" ? (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 px-2 text-xs"
+                    onClick={() => {
+                        setGroupFilter("");
+                        setTagFilter("");
+                        setAvailability("all");
+                    }}
+                >
+                    Clear filters
+                </Button>
+            ) : null}
         </div>
     );
 
@@ -307,6 +313,104 @@ export function AssetRegistrationModule() {
                 searchKey="name"
                 emptyTitle="No assets yet"
                 emptyDescription="Register the first asset to start tracking inventory."
+                cards={
+                    isLoading || filtered.length === 0 ? null : (
+                        <ul className="divide-y">
+                            {filtered.map((item) => (
+                                <li key={item.id} className="grid gap-2 px-4 py-3">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                            <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                                                {item.item_code}
+                                            </span>{" "}
+                                            <span className="truncate">{item.name}</span>
+                                        </p>
+                                        <span className="shrink-0">
+                                            {isRetired(item.is_retired) ? (
+                                                <StatusPill tone="neutral">Retired</StatusPill>
+                                            ) : (
+                                                <StatusPill tone="success">Active</StatusPill>
+                                            )}
+                                        </span>
+                                    </div>
+                                    {item.tags.length > 0 ? (
+                                        <div className="flex min-w-0 flex-wrap items-center gap-1">
+                                            {item.tags.slice(0, 3).map((tag) => (
+                                                <span
+                                                    key={tag.id}
+                                                    className="inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[11px]"
+                                                    title={tag.tag_name}
+                                                >
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className="size-2 shrink-0 rounded-full border"
+                                                        style={{ backgroundColor: tag.color ?? "transparent" }}
+                                                    />
+                                                    <span className="truncate">{tag.tag_name}</span>
+                                                </span>
+                                            ))}
+                                            {item.tags.length > 3 ? (
+                                                <span className="text-[11px] tabular-nums text-muted-foreground">
+                                                    +{item.tags.length - 3}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
+                                    <dl className="grid grid-cols-3 gap-2 text-center">
+                                        <div className="rounded-md border px-2 py-1.5">
+                                            <dt className="text-[11px] text-muted-foreground">Qty</dt>
+                                            <dd className="font-semibold tabular-nums">{item.quantity}</dd>
+                                        </div>
+                                        <div className="rounded-md border px-2 py-1.5">
+                                            <dt className="text-[11px] text-muted-foreground">Out</dt>
+                                            <dd className="font-semibold tabular-nums">{item.quantity_out}</dd>
+                                        </div>
+                                        <div className="rounded-md border px-2 py-1.5">
+                                            <dt className="text-[11px] text-muted-foreground">Avail</dt>
+                                            <dd className="font-semibold tabular-nums">{item.quantity_available}</dd>
+                                        </div>
+                                    </dl>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                            onClick={() =>
+                                                router.push(
+                                                    `/customer-activation/customer-asset/asset-registration/${item.id}`,
+                                                )
+                                            }
+                                        >
+                                            <Eye className="size-4" aria-hidden />
+                                            View
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                            onClick={() => setDialog({ open: true, item })}
+                                        >
+                                            <Pencil className="size-4" aria-hidden />
+                                            Edit
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                            onClick={() => {
+                                                setTagTarget(item);
+                                                setTagSelection(item.tags.map((t) => t.id));
+                                            }}
+                                        >
+                                            <Tags className="size-4" aria-hidden />
+                                            Tags
+                                        </Button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                }
             />
 
             <AssetItemFormDialog
@@ -325,14 +429,14 @@ export function AssetRegistrationModule() {
             />
 
             <Dialog open={tagTarget !== null} onOpenChange={(open) => !open && setTagTarget(null)}>
-                <DialogContent className="w-[95vw] sm:max-w-[440px]">
-                    <DialogHeader>
+                <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[440px]">
+                    <DialogHeader className="px-6 pt-6">
                         <DialogTitle>Add tags</DialogTitle>
                         <DialogDescription>
                             {tagTarget ? `Choose tags for "${tagTarget.name}".` : ""}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid max-h-64 gap-1 overflow-y-auto rounded-md border p-2">
+                    <div className="mx-6 mt-6 grid max-h-64 gap-1 overflow-y-auto rounded-md border p-2">
                         {tags.length === 0 ? (
                             <p className="p-2 text-sm text-muted-foreground">No active tags available.</p>
                         ) : (
@@ -365,10 +469,12 @@ export function AssetRegistrationModule() {
                             })
                         )}
                     </div>
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setTagTarget(null)}>
-                            Cancel
-                        </Button>
+                    <DialogFooter className="mt-6 justify-end border-t bg-muted/20 px-6 py-4">
+                        <DialogClose asChild>
+                            <Button type="button" variant="outline" onClick={() => setTagTarget(null)}>
+                                Cancel
+                            </Button>
+                        </DialogClose>
                         <Button type="button" disabled={savingTags} onClick={() => void saveTags()}>
                             Save tags
                         </Button>

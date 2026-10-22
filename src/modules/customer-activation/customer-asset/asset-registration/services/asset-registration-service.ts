@@ -110,7 +110,7 @@ function enrich(
         unit_value: unitValue({
             costPerItem: cost,
             lifeSpanMonths: item.life_span_months,
-            dateAcquired: item.date_acquired,
+            dateAcquired: item.date_acquired.slice(0, 10),
         }),
     };
 }
@@ -118,10 +118,10 @@ function enrich(
 export async function listItems(): Promise<EnrichedAssetItem[]> {
     const [itemsBody, tagsBody, taggingsBody, groupsBody, allTagsBody] = await Promise.all([
         directus<AssetItem[]>(`/items/${ITEM}?limit=-1&sort=name`),
-        directus<AssetItemTag[]>(`/items/${ITEM_TAG}?limit=-1`),
-        directus<HoldingRow[]>(`/items/${TAGGING}?limit=-1&filter[assignment_status][_in]=open,partial`),
-        directus<AssetGroup[]>(`/items/${GROUP}?limit=-1&sort=group_name`),
-        directus<AssetTag[]>(`/items/${TAG}?limit=-1&sort=tag_name`),
+        directus<AssetItemTag[]>(`/items/${ITEM_TAG}?limit=-1&fields=id,item_id,tag_id`),
+        directus<HoldingRow[]>(`/items/${TAGGING}?limit=-1&filter[assignment_status][_in]=open,partial&fields=id,item_id,quantity,returned_quantity,assignment_status`),
+        directus<AssetGroup[]>(`/items/${GROUP}?limit=-1&sort=group_name&fields=id,group_name`),
+        directus<AssetTag[]>(`/items/${TAG}?limit=-1&sort=tag_name&fields=id,tag_code,tag_name,color,description,is_active`),
     ]);
     const items = itemsBody.data ?? [];
     const tagsById = new Map((allTagsBody.data ?? []).map((t) => [t.id, t]));
@@ -160,7 +160,7 @@ export async function getItem(id: number): Promise<AssetItemDetail | null> {
     const unit = unitValue({
         costPerItem: cost,
         lifeSpanMonths: item.life_span_months,
-        dateAcquired: item.date_acquired,
+        dateAcquired: item.date_acquired.slice(0, 10),
     });
     return {
         item,
@@ -225,46 +225,63 @@ export async function createItem(
     if (!created) throw new Error("Asset was not created");
 
     const uniqueTags = [...new Set(tagIds.filter((t) => Number.isInteger(t) && t > 0))];
-    if (uniqueTags.length > 0) {
-        await directus(`/items/${ITEM_TAG}`, {
-            method: "POST",
-            body: JSON.stringify(
-                uniqueTags.map((tag_id) => ({
-                    item_id: created.id,
-                    tag_id,
-                    tagged_at: now,
-                    tagged_by: actorId,
-                    created_by: actorId,
-                    created_at: now,
-                    updated_by: actorId,
-                    updated_at: now,
-                })),
-            ),
-        });
-    }
+    try {
+        if (uniqueTags.length > 0) {
+            await directus(`/items/${ITEM_TAG}`, {
+                method: "POST",
+                body: JSON.stringify(
+                    uniqueTags.map((tag_id) => ({
+                        item_id: created.id,
+                        tag_id,
+                        tagged_at: now,
+                        tagged_by: actorId,
+                        created_by: actorId,
+                        created_at: now,
+                        updated_by: actorId,
+                        updated_at: now,
+                    })),
+                ),
+            });
+        }
 
-    await directus(`/items/${HISTORY}`, {
-        method: "POST",
-        body: JSON.stringify({
-            item_id: created.id,
-            event: "registered",
-            quantity_delta: created.quantity,
-            quantity_before: 0,
-            quantity_after: created.quantity,
-            cost_before: null,
-            cost_after: created.cost_per_item,
-            payload: null,
-            reference_table: null,
-            reference_id: null,
-            remarks: "Asset registered",
-            actor_user_id: actorId,
-            occurred_at: now,
-            created_by: actorId,
-            created_at: now,
-            updated_by: actorId,
-            updated_at: now,
-        }),
-    });
+        await directus(`/items/${HISTORY}`, {
+            method: "POST",
+            body: JSON.stringify({
+                item_id: created.id,
+                event: "registered",
+                quantity_delta: created.quantity,
+                quantity_before: 0,
+                quantity_after: created.quantity,
+                cost_before: null,
+                cost_after: created.cost_per_item,
+                payload: null,
+                reference_table: null,
+                reference_id: null,
+                remarks: "Asset registered",
+                actor_user_id: actorId,
+                occurred_at: now,
+                created_by: actorId,
+                created_at: now,
+                updated_by: actorId,
+                updated_at: now,
+            }),
+        });
+    } catch (error) {
+        try {
+            const written = await directus<AssetItemTag[]>(
+                `/items/${ITEM_TAG}?limit=-1&filter[item_id][_eq]=${created.id}&fields=id`,
+            );
+            await Promise.all(
+                (written.data ?? []).map((r) =>
+                    directus(`/items/${ITEM_TAG}/${r.id}`, { method: "DELETE" }).catch(() => null),
+                ),
+            );
+            await directus(`/items/${ITEM}/${created.id}`, { method: "DELETE" }).catch(() => null);
+        } catch {
+            // best-effort cleanup only
+        }
+        throw error;
+    }
     return created;
 }
 
@@ -287,7 +304,9 @@ export async function updateItem(
         }
     }
 
-    const patch: Record<string, unknown> = { updated_by: actorId, updated_at: phNow() };
+    const patch: Record<string, unknown> = { updated_by: actorId };
+    // updated_at is the "last purchase" date — only restocking rewrites it.
+    if (input.quantity !== undefined) patch.updated_at = phNow();
     if (input.name !== undefined) patch.name = input.name.trim();
     if (input.category !== undefined) patch.category = cleanText(input.category);
     if (input.quantity !== undefined) patch.quantity = input.quantity;
@@ -307,6 +326,24 @@ export async function updateItem(
         body: JSON.stringify(patch),
     });
     if (!body.data) throw new Error("Asset was not updated");
+
+    // Post-write guard: a concurrent tag-out may have raised units-out above the new quantity.
+    if (input.quantity !== undefined) {
+        const outAfter = quantityOut(await getOutstanding(id));
+        if (input.quantity < outAfter) {
+            try {
+                await directus(`/items/${ITEM}/${id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ quantity: current.quantity }),
+                });
+            } catch {
+                // best-effort revert only
+            }
+            throw new Error(
+                `Cannot set quantity to ${input.quantity} — ${outAfter} unit(s) are still assigned out. Return units before reducing stock.`,
+            );
+        }
+    }
 
     const now = phNow();
     await directus(`/items/${HISTORY}`, {
@@ -347,11 +384,6 @@ export async function setItemTags(
     const wanted = new Set(tagIds.filter((t) => Number.isInteger(t) && t > 0));
     const now = phNow();
 
-    const stale = existing.filter((r) => !wanted.has(r.tag_id));
-    await Promise.all(
-        stale.map((r) => directus(`/items/${ITEM_TAG}/${r.id}`, { method: "DELETE" })),
-    );
-
     const have = new Set(existing.map((r) => r.tag_id));
     const fresh = [...wanted].filter((t) => !have.has(t));
     if (fresh.length > 0) {
@@ -372,6 +404,11 @@ export async function setItemTags(
         });
     }
 
+    const stale = existing.filter((r) => !wanted.has(r.tag_id));
+    await Promise.all(
+        stale.map((r) => directus(`/items/${ITEM_TAG}/${r.id}`, { method: "DELETE" })),
+    );
+
     const after = await directus<AssetItemTag[]>(
         `/items/${ITEM_TAG}?limit=-1&filter[item_id][_eq]=${id}`,
     );
@@ -380,8 +417,8 @@ export async function setItemTags(
 
 export async function listCatalogs(): Promise<Catalogs> {
     const [groupsBody, tagsBody] = await Promise.all([
-        directus<AssetGroup[]>(`/items/${GROUP}?limit=-1&sort=group_name`),
-        directus<AssetTag[]>(`/items/${TAG}?limit=-1&sort=tag_name`),
+        directus<AssetGroup[]>(`/items/${GROUP}?limit=-1&sort=group_name&fields=id,group_code,group_name,description,is_active`),
+        directus<AssetTag[]>(`/items/${TAG}?limit=-1&sort=tag_name&fields=id,tag_code,tag_name,color,description,is_active`),
     ]);
     return {
         groups: groupsBody.data ?? [],

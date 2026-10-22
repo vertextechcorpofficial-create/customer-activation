@@ -14,7 +14,14 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { StatusPill } from "./StatusPill";
 import { AssetGroupsListShell } from "./AssetGroupsListShell";
 import { AssetGroupFormDialog } from "./AssetGroupFormDialog";
 import { useAssetGroups } from "../hooks/useAssetGroups";
@@ -34,13 +41,24 @@ export function AssetGroupsModule() {
     const [dialog, setDialog] = useState<DialogState>(null);
     const [confirmArchive, setConfirmArchive] = useState<AssetGroup | null>(null);
     const [archiving, setArchiving] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+
+    const filteredGroups = useMemo(
+        () =>
+            groups.filter((group) => {
+                if (statusFilter === "active") return isActive(group.is_active);
+                if (statusFilter === "inactive") return !isActive(group.is_active);
+                return true;
+            }),
+        [groups, statusFilter],
+    );
 
     const columns = useMemo<ColumnDef<AssetGroup, unknown>[]>(() => [
         {
             accessorKey: "group_code",
             header: "Code",
             cell: ({ row }) => (
-                <span className="font-mono text-xs tabular-nums" title={row.original.group_code}>
+                <span className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums" title={row.original.group_code}>
                     {row.original.group_code}
                 </span>
             ),
@@ -68,9 +86,9 @@ export function AssetGroupsModule() {
             header: "Status",
             cell: ({ row }) =>
                 isActive(row.original.is_active) ? (
-                    <StatusBadge tone="info">Active</StatusBadge>
+                    <StatusPill tone="success">Active</StatusPill>
                 ) : (
-                    <StatusBadge tone="neutral">Inactive</StatusBadge>
+                    <StatusPill tone="neutral">Inactive</StatusPill>
                 ),
         },
         {
@@ -137,13 +155,86 @@ export function AssetGroupsModule() {
                 title="Asset groups"
                 description="Codes group related assets for registration and tagging."
                 columns={columns}
-                data={groups}
+                data={filteredGroups}
                 isLoading={isLoading}
                 error={error}
                 onRefresh={() => void refresh()}
                 searchKey="group_name"
                 emptyTitle="No asset groups yet"
                 emptyDescription="Create the first asset group to start organizing inventory."
+                filters={
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                            <SelectTrigger className="w-[130px]" aria-label="Filter by status">
+                                <SelectValue placeholder="Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {statusFilter !== "all" ? (
+                            <Button variant="ghost" size="sm" onClick={() => setStatusFilter("all")}>
+                                Clear filters
+                            </Button>
+                        ) : null}
+                    </div>
+                }
+                cards={
+                    isLoading || filteredGroups.length === 0 ? null : (
+                        <ul className="divide-y">
+                            {filteredGroups.map((group) => {
+                                const active = isActive(group.is_active);
+                                return (
+                                    <li key={group.id} className="grid gap-2 px-4 py-3">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                                <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                                                    {group.group_code}
+                                                </span>{" "}
+                                                <span className="truncate">{group.group_name}</span>
+                                            </p>
+                                            <span className="shrink-0">
+                                                {active ? (
+                                                    <StatusPill tone="success">Active</StatusPill>
+                                                ) : (
+                                                    <StatusPill tone="neutral">Inactive</StatusPill>
+                                                )}
+                                            </span>
+                                        </div>
+                                        {group.description?.trim() ? (
+                                            <p className="truncate text-xs text-muted-foreground" title={group.description}>
+                                                {group.description}
+                                            </p>
+                                        ) : null}
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                onClick={() => setDialog({ mode: "edit", group })}
+                                            >
+                                                <Pencil className="size-4" aria-hidden />
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                disabled={!active}
+                                                onClick={() => setConfirmArchive(group)}
+                                            >
+                                                <Archive className="size-4" aria-hidden />
+                                                Archive
+                                            </Button>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )
+                }
             />
             <AssetGroupFormDialog
                 open={dialog !== null}

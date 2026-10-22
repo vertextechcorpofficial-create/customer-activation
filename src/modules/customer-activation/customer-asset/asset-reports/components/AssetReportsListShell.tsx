@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RefreshCwIcon } from "lucide-react";
 import type { ListShellProps } from "../types/list-shell";
+import styles from "./list-shell.module.css";
 
 export function AssetReportsListShell<T>({
     title,
@@ -24,7 +25,7 @@ export function AssetReportsListShell<T>({
     pageCount,
 }: ListShellProps<T>) {
     return (
-        <Card className="shadow-none border-border overflow-hidden">
+        <Card className="overflow-hidden rounded-2xl border-border/50">
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between space-y-0">
                 <div className="min-w-0 space-y-1">
                     <CardTitle className="truncate">{title}</CardTitle>
@@ -32,13 +33,13 @@ export function AssetReportsListShell<T>({
                         <p className="text-sm text-muted-foreground">{description}</p>
                     ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {action}
                     {filters}
                     {onRefresh ? (
-                        <Button variant="outline" size="sm" onClick={onRefresh} aria-label="Refresh report">
-                            <RefreshCwIcon className="size-4" aria-hidden />
-                            Refresh
+                        <Button variant="outline" size="sm" onClick={onRefresh} aria-label="Refresh report" className="shrink-0">
+                            <RefreshCwIcon className="size-4 shrink-0" aria-hidden />
+                            <span className="whitespace-nowrap">Refresh</span>
                         </Button>
                     ) : null}
                 </div>
@@ -52,6 +53,7 @@ export function AssetReportsListShell<T>({
                         </Alert>
                     </div>
                 ) : null}
+                <div className={styles.hideColumnMenu}>
                 <NewDataTable
                     columns={columns}
                     data={data}
@@ -61,6 +63,7 @@ export function AssetReportsListShell<T>({
                     pageCount={pageCount}
                     {...(searchKey && onSearch ? { searchKey, onSearch } : {})}
                 />
+                </div>
             </CardContent>
         </Card>
     );

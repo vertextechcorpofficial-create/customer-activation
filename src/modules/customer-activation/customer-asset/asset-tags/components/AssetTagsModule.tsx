@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, Plus } from "lucide-react";
 
@@ -21,7 +21,14 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { StatusPill } from "./StatusPill";
 import { AssetTagsListShell } from "./AssetTagsListShell";
 import { AssetTagFormDialog } from "./AssetTagFormDialog";
 import { useAssetTags } from "../hooks/useAssetTags";
@@ -39,6 +46,17 @@ export function AssetTagsModule() {
     });
     const [archiveTarget, setArchiveTarget] = useState<AssetTag | null>(null);
     const [archiving, setArchiving] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<"all" | "active" | "archived">("all");
+
+    const filteredTags = useMemo(
+        () =>
+            tags.filter((tag) => {
+                if (statusFilter === "active") return isActive(tag.is_active);
+                if (statusFilter === "archived") return !isActive(tag.is_active);
+                return true;
+            }),
+        [tags, statusFilter],
+    );
 
     const columns: ColumnDef<AssetTag>[] = [
         {
@@ -46,7 +64,7 @@ export function AssetTagsModule() {
             header: "Code",
             cell: ({ row }) => (
                 <span
-                    className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                    className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums"
                     title={row.original.tag_code}
                 >
                     {row.original.tag_code}
@@ -66,10 +84,10 @@ export function AssetTagsModule() {
             accessorKey: "color",
             header: "Colour",
             cell: ({ row }) => (
-                <span className="flex items-center gap-2">
+                <span className="flex min-w-0 items-center gap-2">
                     <span
                         aria-hidden="true"
-                        className="size-4 shrink-0 rounded-full border"
+                        className="size-3 shrink-0 rounded-full border"
                         style={{ backgroundColor: row.original.color ?? "transparent" }}
                     />
                     <span className="block max-w-24 truncate font-mono text-xs tabular-nums text-muted-foreground">
@@ -95,9 +113,9 @@ export function AssetTagsModule() {
             header: "Status",
             cell: ({ row }) =>
                 isActive(row.original.is_active) ? (
-                    <StatusBadge tone="success">Active</StatusBadge>
+                    <StatusPill tone="success">Active</StatusPill>
                 ) : (
-                    <StatusBadge tone="neutral">Archived</StatusBadge>
+                    <StatusPill tone="neutral">Archived</StatusPill>
                 ),
         },
         {
@@ -159,13 +177,84 @@ export function AssetTagsModule() {
                 title="Asset tags"
                 description="Colour-coded labels for customer assets. Archived asset tags stay on past assets."
                 columns={columns}
-                data={tags}
+                data={filteredTags}
                 isLoading={isLoading}
                 error={error}
                 onRefresh={() => void refresh()}
                 searchKey="tag_name"
                 emptyTitle="No asset tags yet"
                 emptyDescription="Create the first asset tag to start labelling assets."
+                filters={
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                            <SelectTrigger className="w-[130px]" aria-label="Filter by status">
+                                <SelectValue placeholder="Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="archived">Archived</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {statusFilter !== "all" ? (
+                            <Button variant="ghost" size="sm" onClick={() => setStatusFilter("all")}>
+                                Clear filters
+                            </Button>
+                        ) : null}
+                    </div>
+                }
+                cards={
+                    isLoading || filteredTags.length === 0 ? null : (
+                        <ul className="divide-y">
+                            {filteredTags.map((tag) => {
+                                const active = isActive(tag.is_active);
+                                return (
+                                    <li key={tag.id} className="grid gap-2 px-4 py-3">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span
+                                                aria-hidden="true"
+                                                className="size-3 shrink-0 rounded-full border"
+                                                style={{ backgroundColor: tag.color ?? "transparent" }}
+                                            />
+                                            <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                                                <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+                                                    {tag.tag_code}
+                                                </span>{" "}
+                                                <span className="truncate">{tag.tag_name}</span>
+                                            </p>
+                                            <span className="shrink-0">
+                                                {active ? (
+                                                    <StatusPill tone="success">Active</StatusPill>
+                                                ) : (
+                                                    <StatusPill tone="neutral">Archived</StatusPill>
+                                                )}
+                                            </span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                onClick={() => setDialog({ open: true, tag })}
+                                            >
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                disabled={!active}
+                                                onClick={() => setArchiveTarget(tag)}
+                                            >
+                                                Archive
+                                            </Button>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )
+                }
             />
 
             <AssetTagFormDialog
