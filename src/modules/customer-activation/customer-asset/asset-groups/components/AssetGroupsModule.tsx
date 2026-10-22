@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Archive, Loader2, Pencil, Plus } from "lucide-react";
 import {
@@ -52,6 +53,69 @@ export function AssetGroupsModule() {
             }),
         [groups, statusFilter],
     );
+    const listRef = useRef<HTMLDivElement>(null);
+
+    const openGroupEditor = (group: AssetGroup) => setDialog({ mode: "edit", group });
+
+    const findGroupForRow = (row: Element): AssetGroup | undefined => {
+        const code = row.querySelector("td")?.textContent?.trim() ?? "";
+        if (!code) return undefined;
+        return filteredGroups.find((group) => group.group_code === code);
+    };
+
+    const handleRowClick = (event: ReactMouseEvent) => {
+        // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row) return;
+        const group = findGroupForRow(row);
+        if (group) openGroupEditor(group);
+    };
+
+    const handleRowKeyDown = (event: ReactKeyboardEvent) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row || event.target !== row) return;
+        if (event.key === " ") event.preventDefault();
+        const group = findGroupForRow(row);
+        if (group) openGroupEditor(group);
+    };
+
+    // The desktop table rows render inside the shared shell, so enhance them
+    // in place: whole <tr> opens the edit dialog for that record.
+    useEffect(() => {
+        const root = listRef.current;
+        if (!root) return;
+        const matchGroup = (row: Element): AssetGroup | undefined => {
+            const code = row.querySelector("td")?.textContent?.trim() ?? "";
+            if (!code) return undefined;
+            return filteredGroups.find((group) => group.group_code === code);
+        };
+        const enhanceRows = () => {
+            root.querySelectorAll("tbody tr").forEach((tr) => {
+                const rowEl = tr as HTMLElement;
+                const group = matchGroup(tr);
+                if (!group) return;
+                if (rowEl.getAttribute("tabindex") !== "0") rowEl.setAttribute("tabindex", "0");
+                if (rowEl.getAttribute("role") !== "button") rowEl.setAttribute("role", "button");
+                const label = `Edit ${group.group_name}`;
+                if (rowEl.getAttribute("aria-label") !== label) rowEl.setAttribute("aria-label", label);
+                if (!rowEl.classList.contains("cursor-pointer")) {
+                    rowEl.classList.add(
+                        "cursor-pointer",
+                        "hover:bg-muted/40",
+                        "focus-visible:ring-2",
+                        "focus-visible:ring-ring/50",
+                    );
+                }
+            });
+        };
+        enhanceRows();
+        const observer = new MutationObserver(enhanceRows);
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+        return () => observer.disconnect();
+    }, [filteredGroups]);
 
     const columns = useMemo<ColumnDef<AssetGroup, unknown>[]>(() => [
         {
@@ -151,6 +215,7 @@ export function AssetGroupsModule() {
                     New asset group
                 </Button>
             </header>
+            <div ref={listRef} onClick={handleRowClick} onKeyDown={handleRowKeyDown}>
             <AssetGroupsListShell<AssetGroup>
                 title="Asset groups"
                 description="Codes group related assets for registration and tagging."
@@ -187,7 +252,23 @@ export function AssetGroupsModule() {
                             {filteredGroups.map((group) => {
                                 const active = isActive(group.is_active);
                                 return (
-                                    <li key={group.id} className="grid gap-2 px-4 py-3">
+                                    <li
+                                        key={group.id}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Edit ${group.group_name}`}
+                                        onClick={(event) => {
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            openGroupEditor(group);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key !== "Enter" && event.key !== " ") return;
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            if (event.key === " ") event.preventDefault();
+                                            openGroupEditor(group);
+                                        }}
+                                        className="grid cursor-pointer gap-2 px-4 py-3 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    >
                                         <div className="flex min-w-0 items-center gap-2">
                                             <p className="min-w-0 flex-1 truncate text-sm font-semibold">
                                                 <span className="whitespace-nowrap font-mono text-xs tabular-nums">
@@ -236,6 +317,7 @@ export function AssetGroupsModule() {
                     )
                 }
             />
+            </div>
             <AssetGroupFormDialog
                 open={dialog !== null}
                 onOpenChange={(open) => !open && setDialog(null)}

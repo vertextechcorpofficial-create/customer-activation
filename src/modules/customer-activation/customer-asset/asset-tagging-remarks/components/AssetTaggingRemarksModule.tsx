@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, Plus, X } from "lucide-react";
 
@@ -132,12 +132,68 @@ export function AssetTaggingRemarksModule() {
         setCustomerQuery("");
     };
 
+    const tableWrapRef = useRef<HTMLDivElement>(null);
+
+    // The shared assignments table renders its own `<tr>` elements and
+    // exposes no row-props hook, so the module enhances the rendered body
+    // rows in place: the whole row opens the same remarks dialog
+    // (`setRemarksTarget`) the "View remarks" menu item uses. Row identity
+    // comes from the `data-assignment-id` marker in the Customer cell, so
+    // sorting/pagination inside the table cannot desync the target.
+    useEffect(() => {
+        const root = tableWrapRef.current;
+        if (!root) return;
+        const cleanups: Array<() => void> = [];
+        root.querySelectorAll("tbody tr").forEach((tr) => {
+            const marker = tr.querySelector("[data-assignment-id]");
+            if (!marker) return; // skeleton / empty-state row
+            const id = Number(marker.getAttribute("data-assignment-id"));
+            const assignment = filtered.find((item) => item.id === id);
+            if (!assignment) return;
+            tr.classList.add(
+                "cursor-pointer",
+                "hover:bg-muted/40",
+                "focus-visible:ring-2",
+                "focus-visible:ring-ring/50",
+            );
+            tr.setAttribute("tabindex", "0");
+            tr.setAttribute("role", "button");
+            tr.setAttribute("aria-label", `View remarks for ${assignment.customer_name}`);
+            const open = () => setRemarksTarget(assignment);
+            const onClick = (event: Event) => {
+                // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+                const target = event.target as HTMLElement;
+                if (target.closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                open();
+            };
+            const onKeyDown = (event: Event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                const key = (event as KeyboardEvent).key;
+                if (key === "Enter") open();
+                if (key === " ") {
+                    event.preventDefault();
+                    open();
+                }
+            };
+            tr.addEventListener("click", onClick);
+            tr.addEventListener("keydown", onKeyDown);
+            cleanups.push(() => {
+                tr.removeEventListener("click", onClick);
+                tr.removeEventListener("keydown", onKeyDown);
+            });
+        });
+        return () => {
+            cleanups.forEach((fn) => fn());
+        };
+    }, [filtered]);
+
     const columns: ColumnDef<AssignmentView>[] = [
         {
             accessorKey: "customer_name",
             header: "Customer",
             cell: ({ row }) => (
-                <span className="block max-w-52 truncate font-medium" title={row.original.customer_name}>
+                <span className="block max-w-52 truncate font-medium" title={row.original.customer_name} data-assignment-id={row.original.id}>
                     {row.original.customer_name}
                 </span>
             ),
@@ -243,6 +299,7 @@ export function AssetTaggingRemarksModule() {
                 </Button>
             </header>
 
+            <div ref={tableWrapRef}>
             <AssetTaggingRemarksListShell
                 title="Assignments"
                 description="Open assignments hold units out of stock until they are returned."
@@ -309,7 +366,25 @@ export function AssetTaggingRemarksModule() {
                             {filtered.map((a) => {
                                 const done = a.assignment_status === "returned";
                                 return (
-                                    <li key={a.id} className="grid gap-2 px-4 py-3">
+                                    <li
+                                        key={a.id}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`View remarks for ${a.customer_name}`}
+                                        onClick={(event) => {
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            setRemarksTarget(a);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            if (event.key === "Enter") setRemarksTarget(a);
+                                            if (event.key === " ") {
+                                                event.preventDefault();
+                                                setRemarksTarget(a);
+                                            }
+                                        }}
+                                        className="grid cursor-pointer gap-2 px-4 py-3 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    >
                                         <div className="flex min-w-0 items-start justify-between gap-2">
                                             <p className="min-w-0 flex-1">
                                                 <span className="block truncate text-sm font-semibold">{a.customer_name}</span>
@@ -368,6 +443,7 @@ export function AssetTaggingRemarksModule() {
                     )
                 }
             />
+            </div>
 
             <AssignAssetDialog
                 open={assignOpen}

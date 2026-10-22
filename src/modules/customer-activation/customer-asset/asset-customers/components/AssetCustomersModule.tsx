@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Eye } from "lucide-react";
 
@@ -23,6 +25,8 @@ import type { CustomerListRow } from "../services/asset-customers-service";
 const DETAIL_BASE = "/customer-activation/customer-asset/asset-customers";
 
 export function AssetCustomersModule() {
+    const router = useRouter();
+    const listRef = useRef<HTMLDivElement>(null);
     const {
         query,
         setQuery,
@@ -39,6 +43,52 @@ export function AssetCustomersModule() {
         error,
         refresh,
     } = useAssetCustomers();
+
+    // The desktop table (<tr> rendering) lives in the shared DataTable, which
+    // this module must not edit. Enhance rendered body rows in place: each row
+    // already contains its own View link, so read the destination href from
+    // the row itself — robust to client-side sorting/column visibility.
+    useEffect(() => {
+        const root = listRef.current;
+        if (!root || customers.length === 0) return;
+        const table = root.querySelector("table");
+        if (!table) return;
+        const bodyRows = Array.from(table.querySelectorAll("tbody > tr"));
+        const cleanups: Array<() => void> = [];
+        bodyRows.forEach((tr) => {
+            const rowEl = tr as HTMLTableRowElement;
+            if (rowEl.querySelector("td[colspan]")) return;
+            const link = rowEl.querySelector<HTMLAnchorElement>(`a[href^="${DETAIL_BASE}/"]`);
+            const href = link?.getAttribute("href");
+            if (!href) return;
+            const viewLabel = link?.getAttribute("aria-label");
+            rowEl.classList.add("cursor-pointer", "hover:bg-muted/40");
+            rowEl.classList.add("focus-visible:ring-2", "focus-visible:ring-ring/50");
+            rowEl.tabIndex = 0;
+            rowEl.setAttribute("role", "button");
+            rowEl.setAttribute("aria-label", viewLabel?.replace(/^View\s+/, "Open ") ?? href);
+            const onClick = (event: MouseEvent) => {
+                // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+                if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                router.push(href);
+            };
+            const onKeyDown = (event: KeyboardEvent) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                if (event.key === " ") event.preventDefault();
+                router.push(href);
+            };
+            rowEl.addEventListener("click", onClick);
+            rowEl.addEventListener("keydown", onKeyDown);
+            cleanups.push(() => {
+                rowEl.removeEventListener("click", onClick);
+                rowEl.removeEventListener("keydown", onKeyDown);
+            });
+        });
+        return () => {
+            cleanups.forEach((fn) => fn());
+        };
+    }, [customers, router]);
 
     const hasActiveFilters = query.trim() !== "" || status !== "all" || !onlyWithAssets;
     const clearFilters = () => {
@@ -81,14 +131,14 @@ export function AssetCustomersModule() {
         },
         {
             accessorKey: "assetsHeld",
-            header: "Assets held",
+            header: () => <div className="text-right">Assets held</div>,
             cell: ({ row }) => (
                 <span className="block td-num font-mono text-xs">{row.original.assetsHeld}</span>
             ),
         },
         {
             accessorKey: "openAssignments",
-            header: "Open assignments",
+            header: () => <div className="text-right">Open assignments</div>,
             cell: ({ row }) => (
                 <span className="block td-num font-mono text-xs">{row.original.openAssignments}</span>
             ),
@@ -108,7 +158,7 @@ export function AssetCustomersModule() {
     ];
 
     return (
-        <div className="mx-auto w-full max-w-[1600px] space-y-4">
+        <div ref={listRef} className="mx-auto w-full max-w-[1600px] space-y-4">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
                     <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Customer List</h1>
@@ -184,7 +234,23 @@ export function AssetCustomersModule() {
                     isLoading || customers.length === 0 ? null : (
                         <ul className="divide-y">
                             {customers.map((c) => (
-                                <li key={c.id} className="grid gap-2 px-4 py-3">
+                                <li
+                                    key={c.id}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Open ${c.customer_name}`}
+                                    className="grid gap-2 px-4 py-3 cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    onClick={(event) => {
+                                        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                        router.push(`${DETAIL_BASE}/${c.id}`);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (event.key !== "Enter" && event.key !== " ") return;
+                                        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                        if (event.key === " ") event.preventDefault();
+                                        router.push(`${DETAIL_BASE}/${c.id}`);
+                                    }}
+                                >
                                     <div className="flex min-w-0 items-center gap-2">
                                         <p className="min-w-0 flex-1 truncate text-sm font-semibold">
                                             <span className="whitespace-nowrap font-mono text-xs tabular-nums">

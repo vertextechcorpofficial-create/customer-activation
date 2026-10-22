@@ -1,6 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type KeyboardEvent as ReactKeyboardEvent,
+    type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Eye, Pencil, Plus, Tags } from "lucide-react";
@@ -60,6 +68,15 @@ export function AssetRegistrationModule() {
     const [tagFilter, setTagFilter] = useState<string>("");
     const [availability, setAvailability] = useState<Availability>("all");
     const [showRetired, setShowRetired] = useState(true);
+    const tableWrapRef = useRef<HTMLDivElement | null>(null);
+    const itemByCodeRef = useRef<Map<string, EnrichedAssetItem>>(new Map());
+
+    const openItem = useCallback(
+        (id: number) => {
+            router.push(`/customer-activation/customer-asset/asset-registration/${id}`);
+        },
+        [router],
+    );
 
     const filtered = useMemo(() => {
         return items.filter((item) => {
@@ -75,6 +92,68 @@ export function AssetRegistrationModule() {
             return true;
         });
     }, [items, showRetired, groupFilter, tagFilter, availability]);
+
+    const itemByCode = useMemo(
+        () => new Map(filtered.map((item) => [item.item_code, item])),
+        [filtered],
+    );
+
+    useEffect(() => {
+        itemByCodeRef.current = itemByCode;
+    }, [itemByCode]);
+
+    useEffect(() => {
+        const root = tableWrapRef.current;
+        if (!root) return;
+        const decorate = () => {
+            const byCode = itemByCodeRef.current;
+            root.querySelectorAll("tbody tr").forEach((el) => {
+                const rowEl = el as HTMLTableRowElement;
+                const code = rowEl.querySelector("td")?.textContent?.trim() ?? "";
+                const item = byCode.get(code);
+                if (!item) return;
+                rowEl.setAttribute("data-item-id", String(item.id));
+                rowEl.tabIndex = 0;
+                rowEl.setAttribute("role", "button");
+                rowEl.setAttribute("aria-label", `Open ${item.name}`);
+                rowEl.classList.add(
+                    "cursor-pointer",
+                    "hover:bg-muted/40",
+                    "focus-visible:ring-2",
+                    "focus-visible:ring-ring/50",
+                );
+                rowEl.classList.remove("hover:bg-muted/10");
+            });
+        };
+        decorate();
+        const observer = new MutationObserver(decorate);
+        observer.observe(root, { childList: true, subtree: true });
+        return () => observer.disconnect();
+    }, []);
+
+    const handleTableClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+        // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const tr = (event.target as HTMLElement).closest("tbody tr[data-item-id]");
+        if (!tr) return;
+        const id = Number(tr.getAttribute("data-item-id"));
+        if (!Number.isFinite(id)) return;
+        openItem(id);
+    };
+
+    const handleTableKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const tr = (event.target as HTMLElement).closest("tbody tr[data-item-id]");
+        if (!tr) return;
+        const id = Number(tr.getAttribute("data-item-id"));
+        if (!Number.isFinite(id)) return;
+        if (event.key === "Enter") {
+            openItem(id);
+        } else if (event.key === " ") {
+            event.preventDefault();
+            openItem(id);
+        }
+    };
 
     const columns = useMemo<ColumnDef<EnrichedAssetItem>[]>(
         () => [
@@ -301,6 +380,7 @@ export function AssetRegistrationModule() {
                 </Button>
             </header>
 
+            <div ref={tableWrapRef} onClick={handleTableClick} onKeyDown={handleTableKeyDown}>
             <AssetListShell
                 title="Assets"
                 description="Every registered asset with live stock and depreciated value."
@@ -317,7 +397,26 @@ export function AssetRegistrationModule() {
                     isLoading || filtered.length === 0 ? null : (
                         <ul className="divide-y">
                             {filtered.map((item) => (
-                                <li key={item.id} className="grid gap-2 px-4 py-3">
+                                <li
+                                    key={item.id}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Open ${item.name}`}
+                                    onClick={(event) => {
+                                        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                        openItem(item.id);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                        if (event.key === "Enter") {
+                                            openItem(item.id);
+                                        } else if (event.key === " ") {
+                                            event.preventDefault();
+                                            openItem(item.id);
+                                        }
+                                    }}
+                                    className="grid cursor-pointer gap-2 px-4 py-3 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+                                >
                                     <div className="flex min-w-0 items-center gap-2">
                                         <p className="min-w-0 flex-1 truncate text-sm font-semibold">
                                             <span className="whitespace-nowrap font-mono text-xs tabular-nums">
@@ -412,6 +511,7 @@ export function AssetRegistrationModule() {
                     )
                 }
             />
+            </div>
 
             <AssetItemFormDialog
                 open={dialog.open}

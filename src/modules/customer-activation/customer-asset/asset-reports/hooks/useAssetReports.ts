@@ -1,17 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { assetReportsRoutes } from "../routes";
 import type { ApiEnvelope } from "../types/api";
-import type {
-    CustomerAssetRow,
-    LastPurchaseRow,
-    ValuationRow,
-} from "../types/asset-reports.schema";
-
-export type AssetReportTab = "last-purchase" | "customer-assets" | "valuation";
+import type { AssetReportRow } from "../types/asset-reports.schema";
 
 async function request<T>(url: string): Promise<T> {
     const res = await fetch(url, { cache: "no-store" });
@@ -29,68 +23,51 @@ function toMessage(error: unknown): string {
 }
 
 function todayIso(): string {
-    return new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, "0");
+    const day = `${now.getDate()}`.padStart(2, "0");
+    return `${now.getFullYear()}-${month}-${day}`;
 }
 
 export function useAssetReports() {
-    const [tab, setTabState] = useState<AssetReportTab>("last-purchase");
     const [asOf, setAsOf] = useState<string>(todayIso);
-    const [lastPurchase, setLastPurchase] = useState<LastPurchaseRow[]>([]);
-    const [customerAssets, setCustomerAssets] = useState<CustomerAssetRow[]>([]);
-    const [valuation, setValuation] = useState<ValuationRow[]>([]);
+    const [rows, setRows] = useState<AssetReportRow[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [loaded, setLoaded] = useState<Record<AssetReportTab, boolean>>({
-        "last-purchase": false,
-        "customer-assets": false,
-        valuation: false,
-    });
-    const [loadedAsOf, setLoadedAsOf] = useState<string | null>(null);
+    const loadedFor = useRef<string | null>(null);
 
-    const load = useCallback(
-        async (target: AssetReportTab, date: string, force = false) => {
-            const isValuation = target === "valuation";
-            if (!force && loaded[target] && (!isValuation || loadedAsOf === date)) return;
-            setIsLoading(true);
-            setError(null);
-            try {
-                if (target === "last-purchase") {
-                    setLastPurchase(await request<LastPurchaseRow[]>(assetReportsRoutes.lastPurchase));
-                } else if (target === "customer-assets") {
-                    setCustomerAssets(await request<CustomerAssetRow[]>(assetReportsRoutes.customerAssets));
-                } else {
-                    setValuation(
-                        await request<ValuationRow[]>(
-                            `${assetReportsRoutes.valuation}?asOf=${encodeURIComponent(date)}`,
-                        ),
-                    );
-                    setLoadedAsOf(date);
-                }
-                setLoaded((prev) => ({ ...prev, [target]: true }));
-            } catch (err) {
-                const message = toMessage(err);
-                setError(message);
-                toast.error("Failed to load report", { description: message });
-            } finally {
-                setIsLoading(false);
-            }
-        },
-        [loaded, loadedAsOf],
-    );
+    const load = useCallback(async (date: string, force = false) => {
+        if (!force && loadedFor.current === date) return;
+        setIsLoading(true);
+        setError(null);
+        try {
+            setRows(
+                await request<AssetReportRow[]>(
+                    `${assetReportsRoutes.report}?asOf=${encodeURIComponent(date)}`,
+                ),
+            );
+            loadedFor.current = date;
+        } catch (err) {
+            const message = toMessage(err);
+            setError(message);
+            toast.error("Failed to load report", { description: message });
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        void load(tab, asOf);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, asOf]);
+        void load(asOf);
+    }, [asOf, load]);
 
-    const setTab = useCallback((next: AssetReportTab) => {
-        setTabState(next);
+    const setAsOfDate = useCallback((next: string) => {
+        setAsOf(next);
         setError(null);
     }, []);
 
     const refresh = useCallback(() => {
-        void load(tab, asOf, true);
-    }, [load, tab, asOf]);
+        void load(asOf, true);
+    }, [load, asOf]);
 
-    return { tab, setTab, asOf, setAsOf, lastPurchase, customerAssets, valuation, isLoading, error, refresh };
+    return { rows, isLoading, error, refresh, asOf, setAsOf: setAsOfDate };
 }

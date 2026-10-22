@@ -61,10 +61,12 @@ export function useCustomerDetail(id: number) {
     const addNote = useCallback(
         async (body: string): Promise<boolean> => {
             try {
-                await request(assetCustomersRoutes.notes, {
+                const note = await request<Note>(assetCustomersRoutes.notes, {
                     method: "POST",
                     body: JSON.stringify({ customer_id: id, body }),
                 });
+                // Optimistic: show immediately even if the refetch below fails.
+                setDetail((d) => (d ? { ...d, notes: [note, ...(d.notes ?? [])] } : d));
                 toast.success("Note added");
                 await syncNotes();
                 return true;
@@ -83,6 +85,9 @@ export function useCustomerDetail(id: number) {
                     method: "PATCH",
                     body: JSON.stringify({ body }),
                 });
+                setDetail((d) =>
+                    d ? { ...d, notes: d.notes.map((n) => (n.id === noteId ? { ...n, body } : n)) } : d,
+                );
                 toast.success("Note updated");
                 await syncNotes();
                 return true;
@@ -98,6 +103,9 @@ export function useCustomerDetail(id: number) {
         async (noteId: number): Promise<boolean> => {
             try {
                 await request(assetCustomersRoutes.note(noteId), { method: "DELETE" });
+                setDetail((d) =>
+                    d ? { ...d, notes: d.notes.filter((n) => n.id !== noteId) } : d,
+                );
                 toast.success("Note deleted");
                 await syncNotes();
                 return true;

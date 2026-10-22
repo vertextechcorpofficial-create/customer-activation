@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, Plus } from "lucide-react";
 
@@ -57,6 +58,69 @@ export function AssetTagsModule() {
             }),
         [tags, statusFilter],
     );
+    const listRef = useRef<HTMLDivElement>(null);
+
+    const openTagEditor = (tag: AssetTag) => setDialog({ open: true, tag });
+
+    const findTagForRow = (row: Element): AssetTag | undefined => {
+        const code = row.querySelector("td")?.textContent?.trim() ?? "";
+        if (!code) return undefined;
+        return filteredTags.find((tag) => tag.tag_code === code);
+    };
+
+    const handleRowClick = (event: ReactMouseEvent) => {
+        // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row) return;
+        const tag = findTagForRow(row);
+        if (tag) openTagEditor(tag);
+    };
+
+    const handleRowKeyDown = (event: ReactKeyboardEvent) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row || event.target !== row) return;
+        if (event.key === " ") event.preventDefault();
+        const tag = findTagForRow(row);
+        if (tag) openTagEditor(tag);
+    };
+
+    // The desktop table rows render inside the shared shell, so enhance them
+    // in place: whole <tr> opens the edit dialog for that record.
+    useEffect(() => {
+        const root = listRef.current;
+        if (!root) return;
+        const matchTag = (row: Element): AssetTag | undefined => {
+            const code = row.querySelector("td")?.textContent?.trim() ?? "";
+            if (!code) return undefined;
+            return filteredTags.find((tag) => tag.tag_code === code);
+        };
+        const enhanceRows = () => {
+            root.querySelectorAll("tbody tr").forEach((tr) => {
+                const rowEl = tr as HTMLElement;
+                const tag = matchTag(tr);
+                if (!tag) return;
+                if (rowEl.getAttribute("tabindex") !== "0") rowEl.setAttribute("tabindex", "0");
+                if (rowEl.getAttribute("role") !== "button") rowEl.setAttribute("role", "button");
+                const label = `Edit ${tag.tag_name}`;
+                if (rowEl.getAttribute("aria-label") !== label) rowEl.setAttribute("aria-label", label);
+                if (!rowEl.classList.contains("cursor-pointer")) {
+                    rowEl.classList.add(
+                        "cursor-pointer",
+                        "hover:bg-muted/40",
+                        "focus-visible:ring-2",
+                        "focus-visible:ring-ring/50",
+                    );
+                }
+            });
+        };
+        enhanceRows();
+        const observer = new MutationObserver(enhanceRows);
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+        return () => observer.disconnect();
+    }, [filteredTags]);
 
     const columns: ColumnDef<AssetTag>[] = [
         {
@@ -173,6 +237,7 @@ export function AssetTagsModule() {
                 </Button>
             </header>
 
+            <div ref={listRef} onClick={handleRowClick} onKeyDown={handleRowKeyDown}>
             <AssetTagsListShell
                 title="Asset tags"
                 description="Colour-coded labels for customer assets. Archived asset tags stay on past assets."
@@ -209,7 +274,23 @@ export function AssetTagsModule() {
                             {filteredTags.map((tag) => {
                                 const active = isActive(tag.is_active);
                                 return (
-                                    <li key={tag.id} className="grid gap-2 px-4 py-3">
+                                    <li
+                                        key={tag.id}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Edit ${tag.tag_name}`}
+                                        onClick={(event) => {
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            openTagEditor(tag);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key !== "Enter" && event.key !== " ") return;
+                                            if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+                                            if (event.key === " ") event.preventDefault();
+                                            openTagEditor(tag);
+                                        }}
+                                        className="grid cursor-pointer gap-2 px-4 py-3 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    >
                                         <div className="flex min-w-0 items-center gap-2">
                                             <span
                                                 aria-hidden="true"
@@ -256,6 +337,7 @@ export function AssetTagsModule() {
                     )
                 }
             />
+            </div>
 
             <AssetTagFormDialog
                 open={dialog.open}

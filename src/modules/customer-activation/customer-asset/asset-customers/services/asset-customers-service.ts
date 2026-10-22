@@ -238,6 +238,10 @@ export interface Holding {
 
 export interface AssignmentRecord extends Holding {
     closedAt: string | null;
+    remarks: string | null;
+    returnRemarks: string | null;
+    conditionOut: string | null;
+    conditionIn: string | null;
 }
 
 export interface CustomerDetail {
@@ -259,6 +263,23 @@ interface TaggingRow {
     tagged_at: string | null;
     expected_return_at: string | null;
     closed_at: string | null;
+    remarks: string | null;
+    return_remarks: string | null;
+    condition_out: string | null;
+    condition_in: string | null;
+}
+
+export async function getCustomerHeader(
+    id: number,
+): Promise<{ customer_name: string; customer_code: string } | null> {
+    const body = await directus<Record<string, unknown>>(
+        `/items/${CUSTOMER_COLLECTION}/${id}?fields=id,customer_code,customer_name`,
+    ).catch(() => null);
+    if (!body?.data) return null;
+    return {
+        customer_name: String(body.data.customer_name ?? ""),
+        customer_code: String(body.data.customer_code ?? ""),
+    };
 }
 
 export async function getCustomer(id: number): Promise<CustomerDetail | null> {
@@ -267,7 +288,7 @@ export async function getCustomer(id: number): Promise<CustomerDetail | null> {
             `/items/${CUSTOMER_COLLECTION}/${id}?fields=id,customer_code,customer_name,isActive`,
         ).catch(() => null),
         directus<TaggingRow[]>(
-            `/items/${TAGGING_COLLECTION}?limit=-1&sort=-tagged_at&filter[customer_id][_eq]=${id}&fields=id,customer_id,item_id,quantity,returned_quantity,assignment_status,tagged_at,expected_return_at,closed_at`,
+            `/items/${TAGGING_COLLECTION}?limit=-1&sort=-tagged_at&filter[customer_id][_eq]=${id}&fields=id,customer_id,item_id,quantity,returned_quantity,assignment_status,tagged_at,expected_return_at,closed_at,remarks,return_remarks,condition_out,condition_in`,
         ),
         listNotes(id),
     ]);
@@ -299,6 +320,10 @@ export async function getCustomer(id: number): Promise<CustomerDetail | null> {
             expectedReturnAt: t.expected_return_at,
             taggedAt: t.tagged_at,
             closedAt: t.closed_at,
+            remarks: t.remarks,
+            returnRemarks: t.return_remarks,
+            conditionOut: t.condition_out,
+            conditionIn: t.condition_in,
         };
     };
     // Directus sorted newest-first; holdings keep only open/partial.

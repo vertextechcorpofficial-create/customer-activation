@@ -15,6 +15,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 import { CustomerDashboard } from "@/modules/customer-activation/customer-asset/asset-customers";
+import { getCustomerHeader } from "@/modules/customer-activation/customer-asset/asset-customers/services/asset-customers-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,10 @@ export default async function Page({ params }: PageProps) {
     const id = Number(raw);
     if (!Number.isInteger(id) || id <= 0) notFound();
 
-    const cookieStore = await cookies();
+    const [cookieStore, header] = await Promise.all([
+        cookies(),
+        getCustomerHeader(id).catch(() => null),
+    ]);
     const token = cookieStore.get(COOKIE_NAME)?.value ?? null;
     const payload = token ? decodeJwtPayload(token) : null;
 
@@ -73,7 +77,7 @@ export default async function Page({ params }: PageProps) {
                                 <BreadcrumbSeparator className="hidden md:block shrink-0" />
                                 <BreadcrumbItem className="min-w-0 overflow-hidden">
                                     <BreadcrumbPage className="truncate max-w-[56vw] sm:max-w-[60vw] md:max-w-none">
-                                        Customer #{id}
+                                        {header?.customer_name ?? "Customer details"}
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>
