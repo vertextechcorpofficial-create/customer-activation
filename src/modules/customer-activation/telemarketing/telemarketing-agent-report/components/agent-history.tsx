@@ -28,6 +28,7 @@ import type {
     AgentHistoryActivity,
 } from "../services/agent-history-service";
 import type { ReportPeriod } from "../types/report.schema";
+import { DonutChart } from "./donut-chart";
 import { StatusPill, type Tone } from "./status-pill";
 
 const KIND_ICON: Record<string, LucideIcon> = {
@@ -56,14 +57,6 @@ const KIND_BADGE: Record<Tone, string> = {
     destructive: "border-transparent bg-destructive/15 text-destructive",
 };
 
-/** Kind → donut stroke (CSS vars, no hex) and legend icon tint. */
-const KIND_STROKE: Record<string, string> = {
-    call: "var(--color-info)",
-    email: "var(--color-primary)",
-    visit: "var(--color-warning)",
-    meeting: "var(--color-success)",
-};
-
 const KIND_TEXT: Record<string, string> = {
     call: "text-info",
     email: "text-primary",
@@ -77,12 +70,6 @@ const MIX_ORDER = [
     { key: "visit", label: "Visits" },
     { key: "meeting", label: "Meetings" },
 ] as const;
-
-/** Donut geometry: r=40, stroke-width=12, viewBox 0 0 120 120, ~2% gap. */
-const DONUT_R = 40;
-const DONUT_C = 2 * Math.PI * DONUT_R;
-const DONUT_GAP = DONUT_C * 0.02;
-const DONUT_STROKE = 12;
 
 const OUTCOME_TONE: Record<string, Tone> = {
     connected: "success",
@@ -392,23 +379,15 @@ function rateGapChip(
 
 function WorkMixHalf({ history }: { history: AgentHistoryData }) {
     const total = MIX_ORDER.reduce((sum, { key }) => sum + history.breakdown[key], 0);
-    const summary = MIX_ORDER.map(({ key, label }) => `${label} ${history.breakdown[key]}`).join(
-        ", ",
-    );
-    const fracs = MIX_ORDER.map(({ key }) => (total > 0 ? history.breakdown[key] / total : 0));
-    const segments = MIX_ORDER.map(({ key }, index) => {
-        const count = history.breakdown[key];
-        const frac = fracs[index] ?? 0;
-        const len = Math.max(0, frac * DONUT_C - DONUT_GAP);
-        const offset = -fracs.slice(0, index).reduce((sum, f) => sum + f * DONUT_C, 0);
-        return { key, count, len, offset };
-    });
+    const segments = [
+        { label: "Calls", value: history.breakdown.call, strokeClass: "stroke-info" },
+        { label: "Emails", value: history.breakdown.email, strokeClass: "stroke-primary" },
+        { label: "Visits", value: history.breakdown.visit, strokeClass: "stroke-warning" },
+        { label: "Meetings", value: history.breakdown.meeting, strokeClass: "stroke-success" },
+    ];
     return (
         <section aria-label="Work mix" className="min-w-0">
-            <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Work mix</h3>
-                <span className="text-xs tabular-nums text-muted-foreground">{total} total</span>
-            </div>
+            <h3 className="text-sm font-semibold">Work mix</h3>
             {total === 0 ? (
                 <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                     <Activity className="size-4 shrink-0" aria-hidden />
@@ -416,43 +395,13 @@ function WorkMixHalf({ history }: { history: AgentHistoryData }) {
                 </p>
             ) : (
                 <div className="mt-4 grid min-w-0 gap-4">
-                    <div className="relative mx-auto w-fit">
-                        <svg
-                            viewBox="0 0 120 120"
-                            className="size-40"
-                            role="img"
-                            aria-label={summary}
-                        >
-                            <circle
-                                cx="60"
-                                cy="60"
-                                r={DONUT_R}
-                                fill="none"
-                                stroke="var(--color-muted)"
-                                strokeWidth={DONUT_STROKE}
-                            />
-                            {segments.map((seg) =>
-                                seg.count > 0 ? (
-                                    <circle
-                                        key={seg.key}
-                                        cx="60"
-                                        cy="60"
-                                        r={DONUT_R}
-                                        fill="none"
-                                        stroke={KIND_STROKE[seg.key]}
-                                        strokeWidth={DONUT_STROKE}
-                                        strokeLinecap="round"
-                                        strokeDasharray={`${seg.len} ${DONUT_C - seg.len}`}
-                                        strokeDashoffset={seg.offset}
-                                        transform="rotate(-90 60 60)"
-                                    />
-                                ) : null,
-                            )}
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className="text-2xl font-bold tabular-nums">{total}</span>
-                            <span className="text-xs text-muted-foreground">total touches</span>
-                        </div>
+                    <div className="mx-auto w-fit">
+                        <DonutChart
+                            segments={segments}
+                            label="total touches"
+                            size={200}
+                            strokeWidth={28}
+                        />
                     </div>
                     <ul className="grid min-w-0 gap-2" aria-label="Activity mix legend">
                         {MIX_ORDER.map(({ key, label }) => {
