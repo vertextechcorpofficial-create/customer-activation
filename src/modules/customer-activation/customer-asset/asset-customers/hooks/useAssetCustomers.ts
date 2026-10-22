@@ -44,7 +44,7 @@ export function useAssetCustomers() {
     const [filters, setFilters] = useState<AssetCustomerFilters>({
         q: "",
         status: "all",
-        onlyWithAssets: false,
+        onlyWithAssets: true,
         page: 0,
         pageSize: 10,
     });

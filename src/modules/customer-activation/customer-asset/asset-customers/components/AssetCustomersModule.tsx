@@ -40,11 +40,11 @@ export function AssetCustomersModule() {
         refresh,
     } = useAssetCustomers();
 
-    const hasActiveFilters = query.trim() !== "" || status !== "all" || onlyWithAssets;
+    const hasActiveFilters = query.trim() !== "" || status !== "all" || !onlyWithAssets;
     const clearFilters = () => {
         setQuery("");
         setStatus("all");
-        setOnlyWithAssets(false);
+        setOnlyWithAssets(true);
     };
 
     const columns: ColumnDef<CustomerListRow>[] = [
