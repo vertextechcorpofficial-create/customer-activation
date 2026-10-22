@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
     ArrowDown,
     ArrowUp,
@@ -162,6 +163,16 @@ function SortHeaderButton({
     );
 }
 
+/** Row clicks must ignore interactive elements and portalled menus. */
+function isRowClickIgnored(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+        target.closest(
+            "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+        ) !== null
+    );
+}
+
 /** Default order (service): conversions desc, then activities desc, then id. */
 function defaultCompare(a: AgentReportRow, b: AgentReportRow): number {
     return (
@@ -182,6 +193,7 @@ export function PerUserTable({
     const [debouncedQuery, setDebouncedQuery] = useState("");
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<SortDir>("desc");
+    const router = useRouter();
 
     useEffect(() => {
         const timer = setTimeout(() => setDebouncedQuery(query), 300);
@@ -412,13 +424,36 @@ export function PerUserTable({
                                             return (
                                                 <Fragment key={row.agent_id}>
                                                     <TableRow
-                                                        className="cursor-pointer"
-                                                        onClick={() => toggleExpand(row.agent_id)}
+                                                        className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                        tabIndex={0}
+                                                        role="link"
+                                                        aria-label={`Open history for ${row.display_name}, ${row.agent_code}`}
+                                                        onClick={(event) => {
+                                                            if (isRowClickIgnored(event.target))
+                                                                return;
+                                                            router.push(
+                                                                `/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`,
+                                                            );
+                                                        }}
+                                                        onKeyDown={(event) => {
+                                                            if (
+                                                                event.key !== "Enter" &&
+                                                                event.key !== " "
+                                                            )
+                                                                return;
+                                                            if (isRowClickIgnored(event.target))
+                                                                return;
+                                                            event.preventDefault();
+                                                            router.push(
+                                                                `/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`,
+                                                            );
+                                                        }}
                                                     >
                                                         <TableCell className="min-w-0">
                                                             <span className="flex items-center gap-1.5">
                                                                 <button
                                                                     type="button"
+                                                                    data-no-row-click
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         toggleExpand(row.agent_id);

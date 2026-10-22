@@ -1,4 +1,4 @@
-import type { LeaderboardRow } from "../types/leaderboard.schema";
+import type { LeaderboardData, LeaderboardPeriod } from "../types/leaderboard.schema";
 
 /**
  * Client-safe wrappers around `/api/customer-activation/telemarketing/telemarketing-leaderboard`.
@@ -27,7 +27,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body.data as T;
 }
 
-/** Month-to-date agent leaderboard, already ranked. */
-export function getLeaderboard(): Promise<LeaderboardRow[]> {
-  return request<LeaderboardRow[]>(BASE);
+/**
+ * Gamified agent leaderboard for a rolling window.
+ * @param period - 7 | 30 | 90 days (default 30). Anything else is rejected
+ * server-side with a 400.
+ */
+export function getLeaderboard(period: LeaderboardPeriod = 30): Promise<LeaderboardData> {
+  const query = Number.isInteger(period) ? `?period=${period}` : "";
+  return request<LeaderboardData>(`${BASE}${query}`);
 }

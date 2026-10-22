@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { COOKIE_NAME } from "@/lib/auth-utils";
-import { ReportPeriodSchema } from "@/modules/customer-activation/telemarketing/telemarketing-agent-report/types/report.schema";
+import { parseAgentHistoryPeriod } from "@/modules/customer-activation/telemarketing/telemarketing-agent-report/types/report.schema";
 import { getAgentHistory } from "@/modules/customer-activation/telemarketing/telemarketing-agent-report/services/agent-history-service";
 
 export const runtime = "nodejs";
@@ -26,20 +26,21 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     }
 
     const raw = req.nextUrl.searchParams.get("period") ?? "mtd";
-    const parsed = ReportPeriodSchema.safeParse(raw);
-    if (!parsed.success) {
+    let period: ReturnType<typeof parseAgentHistoryPeriod>;
+    try {
+        period = parseAgentHistoryPeriod(raw);
+    } catch {
         return NextResponse.json(
             {
                 success: false,
-                message: "Validation failed",
-                errors: parsed.error.flatten().fieldErrors,
+                message: "Validation failed: expected one of mtd, last_30, last_90, 7, 30, 90",
             },
             { status: 400 },
         );
     }
 
     try {
-        const data = await getAgentHistory(agentId, parsed.data);
+        const data = await getAgentHistory(agentId, period);
         if (!data) {
             return NextResponse.json({ success: false, message: "Agent not found" }, { status: 404 });
         }

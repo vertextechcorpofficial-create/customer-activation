@@ -10,7 +10,10 @@ import {
 } from "@/components/ui/empty";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 import { LeadDetailView } from "@/modules/customer-activation/telemarketing/telemarketing-pipeline/components/lead-detail-view";
-import { PipelineLeadsShell, headerUser } from "../page";
+import {
+  PipelineShell,
+  headerUser,
+} from "@/modules/customer-activation/telemarketing/telemarketing-pipeline/components/pipeline-shell";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +34,7 @@ export default async function PipelineLeadPage({
   const payload = token ? decodeJwtPayload(token) : null;
 
   return (
-    <PipelineLeadsShell user={headerUser(payload)} title="Lead">
+    <PipelineShell user={headerUser(payload)} crumb="Lead" active="leads">
       {Number.isInteger(leadId) && leadId > 0 ? (
         <LeadDetailView leadId={leadId} />
       ) : (
@@ -45,6 +48,6 @@ export default async function PipelineLeadPage({
           </EmptyHeader>
         </Empty>
       )}
-    </PipelineLeadsShell>
+    </PipelineShell>
   );
 }

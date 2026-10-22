@@ -21,7 +21,17 @@ export function useLeadQuery(params: LeadQueryParams = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      setData(await fetchLeadPage(JSON.parse(key) as LeadQueryParams));
+      const parsed = JSON.parse(key) as LeadQueryParams;
+      const limit = Math.min(50, Math.max(1, Math.trunc(parsed.limit ?? 20) || 20));
+      const requested = Math.max(1, Math.trunc(parsed.page ?? 1) || 1);
+      let data = await fetchLeadPage({ ...parsed, page: requested, limit });
+      // The total can shrink underneath the pager while leads move stages —
+      // land on the last valid page instead of an empty one.
+      const pageCount = Math.max(1, Math.ceil(data.meta.total / limit));
+      if (requested > pageCount) {
+        data = await fetchLeadPage({ ...parsed, page: pageCount, limit });
+      }
+      setData(data);
     } catch (err) {
       const message = toMessage(err);
       setError(message);

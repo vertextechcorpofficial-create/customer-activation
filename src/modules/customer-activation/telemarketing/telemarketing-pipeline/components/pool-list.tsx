@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useDebounce } from "use-debounce";
 import {
   ArrowDown,
@@ -77,6 +78,7 @@ function SortHeaderButton({
 
 /** Unclaimed, non-terminal leads — claim one to start working it. */
 export function PoolList() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [stageFilter, setStageFilter] = useState<string>(ALL);
@@ -377,23 +379,33 @@ export function PoolList() {
                   const stage = stageById.get(lead.stage_id);
                   const pending = pendingId === lead.lead_id;
                   const checked = selected.has(lead.lead_id);
+                  const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
                   return (
-                    <li key={lead.lead_id} className="grid gap-1 rounded-md border p-3">
+                    <li
+                      key={lead.lead_id}
+                      className="relative grid gap-1 rounded-md border p-3 transition-shadow hover:shadow-sm"
+                    >
+                      <Link
+                        href={leadHref}
+                        aria-label={`Open lead ${lead.lead_code} ${lead.company_name}`}
+                        className="absolute inset-0 z-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      />
                       <div className="flex items-start gap-2">
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(value) => toggleOne(lead.lead_id, lead, value === true)}
-                          aria-label={`Select ${lead.company_name}`}
-                          className="mt-1"
-                        />
+                        <span className="relative z-10" data-no-row-click>
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) => toggleOne(lead.lead_id, lead, value === true)}
+                            aria-label={`Select ${lead.company_name}`}
+                            className="mt-1"
+                          />
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <Link
-                            href={`/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`}
-                            className="block truncate font-medium hover:underline"
+                          <span
+                            className="block truncate font-medium"
                             title={lead.company_name}
                           >
                             {lead.company_name}
-                          </Link>
+                          </span>
                           <p className="truncate font-mono text-xs text-muted-foreground" title={lead.lead_code}>
                             {lead.lead_code}
                           </p>
@@ -418,7 +430,8 @@ export function PoolList() {
                         <Button
                           variant={lead.claimed_by_me ? "outline" : "default"}
                           size="sm"
-                          className="min-h-11 w-full"
+                          data-no-row-click
+                          className="relative z-10 min-h-11 w-full"
                           disabled={pending || isLoading || bulkRunning}
                           onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}
                         >
@@ -492,9 +505,37 @@ export function PoolList() {
                       const stage = stageById.get(lead.stage_id);
                       const pending = pendingId === lead.lead_id;
                       const checked = selected.has(lead.lead_id);
+                      const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
                       return (
-                        <TableRow key={lead.lead_id} data-state={checked ? "selected" : undefined}>
-                          <TableCell>
+                        <TableRow
+                          key={lead.lead_id}
+                          data-state={checked ? "selected" : undefined}
+                          tabIndex={0}
+                          role="link"
+                          aria-label={`Open lead ${lead.lead_code} ${lead.company_name}`}
+                          className="cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+                          onClick={(event) => {
+                            if (
+                              (event.target as HTMLElement).closest(
+                                "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+                              )
+                            )
+                              return;
+                            router.push(leadHref);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            if (
+                              (event.target as HTMLElement).closest(
+                                "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+                              )
+                            )
+                              return;
+                            event.preventDefault();
+                            router.push(leadHref);
+                          }}
+                        >
+                          <TableCell data-no-row-click>
                             <Checkbox
                               checked={checked}
                               onCheckedChange={(value) => toggleOne(lead.lead_id, lead, value === true)}
@@ -542,10 +583,11 @@ export function PoolList() {
                               </StatusPill>
                             ) : null}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right" data-no-row-click>
                             <Button
                               variant={lead.claimed_by_me ? "outline" : "default"}
                               size="sm"
+                              data-no-row-click
                               className="min-h-11 md:min-h-0"
                               disabled={pending || isLoading || bulkRunning}
                               onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}

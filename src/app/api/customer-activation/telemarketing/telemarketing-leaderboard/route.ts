@@ -10,9 +10,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
   try {
-    const data = await getLeaderboard();
+    const period = req.nextUrl.searchParams.get("period") ?? undefined;
+    const data = await getLeaderboard(period);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid leaderboard period")) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 });
+    }
     console.error("[telemarketing/telemarketing-leaderboard] GET failed:", error);
     return NextResponse.json({ success: false, message: "Failed to load leaderboard" }, { status: 500 });
   }

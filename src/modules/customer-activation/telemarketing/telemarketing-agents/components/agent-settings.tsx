@@ -75,6 +75,16 @@ const PAGE_SIZE = 10;
 
 const flagOn = (v: AgentView["is_active"]) => Number(v) === 1;
 
+/** Row clicks must ignore interactive elements and portalled menus. */
+function isRowClickIgnored(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+        target.closest(
+            "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+        ) !== null
+    );
+}
+
 function AgentStatus({ agent }: { agent: AgentView }) {
     return flagOn(agent.is_active) ? (
         <StatusPill tone="success">Active</StatusPill>
@@ -97,19 +107,27 @@ function AgentActions({
             <Button
                 variant="ghost"
                 size="icon-sm"
+                data-no-row-click
                 aria-label={`Edit ${agent.display_name}`}
                 title="Edit agent"
-                onClick={() => onEdit(agent)}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit(agent);
+                }}
             >
                 <Pencil className="size-4" />
             </Button>
             <Button
                 variant="ghost"
                 size="icon-sm"
+                data-no-row-click
                 aria-label={`Deactivate ${agent.display_name}`}
                 title="Deactivate agent"
                 disabled={!flagOn(agent.is_active)}
-                onClick={() => onDeactivate(agent)}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onDeactivate(agent);
+                }}
             >
                 <PowerOff className="size-4" />
             </Button>
@@ -367,7 +385,24 @@ export function AgentSettings() {
                         <>
                             <ul className="divide-y divide-border md:hidden">
                                 {agents.map((agent) => (
-                                    <li key={agent.agent_id} className="flex flex-col gap-3 p-4">
+                                    <li
+                                        key={agent.agent_id}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Edit ${agent.display_name}`}
+                                        onClick={(event) => {
+                                            if (isRowClickIgnored(event.target)) return;
+                                            openEdit(agent);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key !== "Enter" && event.key !== " ")
+                                                return;
+                                            if (isRowClickIgnored(event.target)) return;
+                                            event.preventDefault();
+                                            openEdit(agent);
+                                        }}
+                                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                    >
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="truncate font-medium" title={agent.display_name}>
@@ -412,7 +447,27 @@ export function AgentSettings() {
                                     </TableHeader>
                                     <TableBody>
                                         {agents.map((agent) => (
-                                            <TableRow key={agent.agent_id}>
+                                            <TableRow
+                                                key={agent.agent_id}
+                                                tabIndex={0}
+                                                role="button"
+                                                aria-label={`Edit ${agent.display_name}`}
+                                                onClick={(event) => {
+                                                    if (isRowClickIgnored(event.target)) return;
+                                                    openEdit(agent);
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (
+                                                        event.key !== "Enter" &&
+                                                        event.key !== " "
+                                                    )
+                                                        return;
+                                                    if (isRowClickIgnored(event.target)) return;
+                                                    event.preventDefault();
+                                                    openEdit(agent);
+                                                }}
+                                                className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                            >
                                                 <TableCell
                                                     className="max-w-40 truncate font-mono text-xs"
                                                     title={agent.agent_code}

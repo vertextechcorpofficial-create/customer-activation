@@ -178,28 +178,35 @@ function CardVisual({
   dragHandle,
   moveControl,
   className,
+  navigable = true,
 }: {
   lead: BoardLead;
   stage: Stage;
   dragHandle?: ReactNode;
   moveControl?: ReactNode;
   className?: string;
+  navigable?: boolean;
 }) {
   const contactLine = `${lead.contact_name || "No contact"} · ${lead.mobile || lead.email || "No number"}`;
+  const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
   return (
     <article
-      className={`min-w-0 rounded-lg border border-border bg-card p-3 shadow-xs${className ? ` ${className}` : ""}`}
+      className={`group relative min-w-0 rounded-lg border border-border bg-card p-3 shadow-xs transition-shadow hover:shadow-md${className ? ` ${className}` : ""}`}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        {dragHandle}
+      {navigable ? (
         <Link
-          href={`/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`}
-          className="min-w-0 flex-1 text-sm font-medium leading-snug hover:underline"
-        >
+          href={leadHref}
+          aria-label={`Open lead ${lead.lead_code} ${lead.company_name}`}
+          className="absolute inset-0 z-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        />
+      ) : null}
+      <div className="flex min-w-0 items-start gap-2">
+        {dragHandle ? <span className="relative z-10 shrink-0">{dragHandle}</span> : null}
+        <span className="min-w-0 flex-1 text-sm font-medium leading-snug group-hover:underline">
           <span className="block truncate" title={lead.company_name}>
             {lead.company_name}
           </span>
-        </Link>
+        </span>
         <span
           className="max-w-24 shrink-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
           title={lead.lead_code}
@@ -244,7 +251,7 @@ function CardVisual({
             </span>
           ) : null}
         </div>
-        {moveControl}
+        {moveControl ? <span className="relative z-10 shrink-0">{moveControl}</span> : null}
       </div>
     </article>
   );
@@ -683,7 +690,7 @@ export function PipelineBoard() {
         <DragOverlay>
           {activeLead && activeStage ? (
             <div className="w-64 scale-105 opacity-95 shadow-xl">
-              <CardVisual lead={activeLead} stage={activeStage} />
+              <CardVisual lead={activeLead} stage={activeStage} navigable={false} />
             </div>
           ) : null}
         </DragOverlay>

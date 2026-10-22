@@ -1,6 +1,7 @@
 import { dFetch } from "../utils/directus";
 import {
     ReportPeriodSchema,
+    type AgentReportPeriod,
     type AgentReportRow,
     type KindBreakdown,
     type PerUserReport,
@@ -79,6 +80,38 @@ export function resolveRange(period: ReportPeriod): { start: string; end: string
         return { start, end: stamp };
     }
     return { start: `${date.slice(0, 7)}-01 00:00:00`, end: stamp };
+}
+
+/**
+ * Shared rolling-window helper — lives here (not in agent-history-service)
+ * because the per-user report owns the Manila wall-clock convention.
+ * Kept for the agent-history lane (`resolveReportWindows` import); the
+ * per-user index table itself uses `resolveRange` above, not this.
+ */
+
+/** Asia/Manila wall-clock stamp `YYYY-MM-DD HH:mm:ss` for an instant. */
+function manilaStamp(at: number): string {
+    return new Date(at).toLocaleString("sv-SE", { timeZone: "Asia/Manila" });
+}
+
+/**
+ * Current + previous windows for a dashboard period.
+ * @returns Current [start, end] and previous [prevStart, prevEnd=start].
+ */
+export function resolveReportWindows(period: AgentReportPeriod): {
+    start: string;
+    end: string;
+    prevStart: string;
+    prevEnd: string;
+} {
+    const now = Date.now();
+    const span = period * 86_400_000;
+    return {
+        start: manilaStamp(now - span),
+        end: manilaStamp(now),
+        prevStart: manilaStamp(now - 2 * span),
+        prevEnd: manilaStamp(now - span),
+    };
 }
 
 function checked<T>(body: unknown, action: string): T {

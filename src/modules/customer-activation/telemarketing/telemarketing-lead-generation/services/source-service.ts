@@ -69,6 +69,29 @@ function num(v: unknown): number | null {
     return Number.isInteger(n) ? n : null;
 }
 
+/**
+ * ponytail: display/UX guard only — the ceiling is cleaning the source
+ * databases (clients store `"0"` for empty contact fields). Never grow this
+ * into validation: typed input is saved as typed, and dedupe identity lives
+ * in lead-service, not here.
+ */
+function cleanContactField(value: unknown, kind: "contact" | "email"): string | null {
+    if (typeof value !== "string") return null;
+    const v = value.trim();
+    if (!v) return null;
+    if (kind === "email") {
+        const at = v.indexOf("@");
+        if (at < 1 || !v.slice(at + 1).includes(".")) return null;
+        return v;
+    }
+    const digits = v.replace(/[\s\-()]/g, "");
+    if (digits === "09123456789") return null;
+    if (/^09\d{9}$/.test(digits) || /^\+639\d{9}$/.test(digits) || /^639\d{9}$/.test(digits)) {
+        return v;
+    }
+    return null;
+}
+
 function unavailable(reason: SourceUnavailableReason, detail: string): SourceResult {
     return { status: "unavailable", reason, detail };
 }
@@ -138,8 +161,8 @@ async function queryClientTable(
             id,
             name: str(row.customer_name) ?? "(Unnamed customer)",
             code: str(row.customer_code),
-            contact: str(row.contact_number),
-            email: str(row.customer_email),
+            contact: cleanContactField(row.contact_number, "contact"),
+            email: cleanContactField(row.customer_email, "email"),
             city: str(row.city),
             province: str(row.province),
         };

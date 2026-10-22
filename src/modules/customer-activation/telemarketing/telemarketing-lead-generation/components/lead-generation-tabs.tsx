@@ -77,6 +77,20 @@ function rowKey(row: SourceRow): string {
 }
 
 /**
+ * Project rule ◪ from supermemory: row-click handlers must ignore clicks that
+ * originate from interactive elements (including portalled ones like popover
+ * menus and dialogs) to avoid accidental navigation/dialog opens.
+ */
+function isInteractiveOrigin(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+        target.closest(
+            "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+        ) !== null
+    );
+}
+
+/**
  * Top-level client selector. Unconnected rows stay visible but disabled —
  * picking them is impossible, hiding them would hide a provisioning problem.
  */
@@ -364,13 +378,22 @@ function SourceTable({
                     const key = rowKey(row);
                     const checked = selected.has(key);
                     return (
-                        <li key={key} className="grid gap-1 rounded-md border p-3">
+                        <li
+                            key={key}
+                            className="relative grid gap-1 rounded-md border p-3 hover:bg-muted/50"
+                        >
+                            <button
+                                type="button"
+                                aria-label={`Create lead for ${row.name}`}
+                                onClick={() => onCreate(row)}
+                                className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            />
                             <div className="flex items-start gap-2">
                                 <Checkbox
                                     checked={checked}
                                     onCheckedChange={(v) => toggleOne(key, row, v === true)}
                                     aria-label={`Select ${row.name}`}
-                                    className="mt-1"
+                                    className="relative z-10 mt-1"
                                 />
                                 <div className="min-w-0 flex-1">
                                     <p className="truncate font-medium" title={row.name}>
@@ -398,7 +421,7 @@ function SourceTable({
                             >
                                 {locationOf(row)}
                             </p>
-                            <div className="mt-1 flex justify-end">
+                            <div className="relative z-10 mt-1 flex justify-end">
                                 <Button
                                     size="sm"
                                     variant="ghost"
@@ -439,7 +462,24 @@ function SourceTable({
                                 const key = rowKey(row);
                                 const checked = selected.has(key);
                                 return (
-                                    <TableRow key={key} data-state={checked ? "selected" : undefined}>
+                                    <TableRow
+                                        key={key}
+                                        data-state={checked ? "selected" : undefined}
+                                        onClick={(e) => {
+                                            if (isInteractiveOrigin(e.target)) return;
+                                            onCreate(row);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key !== "Enter" && e.key !== " ") return;
+                                            if (isInteractiveOrigin(e.target)) return;
+                                            e.preventDefault();
+                                            onCreate(row);
+                                        }}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Create lead for ${row.name}`}
+                                        className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                    >
                                         <TableCell>
                                             <Checkbox
                                                 checked={checked}

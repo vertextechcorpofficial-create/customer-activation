@@ -51,6 +51,16 @@ import { useTags } from "../hooks/use-tags";
 
 const flagOn = (v: Tag["is_active"]) => Number(v) === 1;
 
+/** Row clicks must ignore interactive elements and portalled menus. */
+function isRowClickIgnored(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+        target.closest(
+            "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
+        ) !== null
+    );
+}
+
 function TagStatus({ tag }: { tag: Tag }) {
     return flagOn(tag.is_active) ? (
         <StatusPill tone="success">Active</StatusPill>
@@ -266,7 +276,24 @@ export function TagSettings() {
                         <>
                             <ul className="divide-y divide-border md:hidden">
                                 {tags.map((tag) => (
-                                    <li key={tag.tag_id} className="flex flex-col gap-3 p-4">
+                                    <li
+                                        key={tag.tag_id}
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Edit ${tag.tag_name}`}
+                                        onClick={(event) => {
+                                            if (isRowClickIgnored(event.target)) return;
+                                            openEdit(tag);
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key !== "Enter" && event.key !== " ")
+                                                return;
+                                            if (isRowClickIgnored(event.target)) return;
+                                            event.preventDefault();
+                                            openEdit(tag);
+                                        }}
+                                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                    >
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="flex min-w-0 items-center gap-2">
                                                 <span
@@ -287,17 +314,25 @@ export function TagSettings() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
+                                                data-no-row-click
                                                 aria-label={`Edit ${tag.tag_name}`}
-                                                onClick={() => openEdit(tag)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    openEdit(tag);
+                                                }}
                                             >
                                                 <Pencil className="size-4" />
                                             </Button>
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
+                                                data-no-row-click
                                                 aria-label={`Deactivate ${tag.tag_name}`}
                                                 disabled={!flagOn(tag.is_active)}
-                                                onClick={() => setConfirmDeactivate(tag)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    setConfirmDeactivate(tag);
+                                                }}
                                             >
                                                 <PowerOff className="size-4" />
                                             </Button>
@@ -319,7 +354,27 @@ export function TagSettings() {
                                     </TableHeader>
                                     <TableBody>
                                         {tags.map((tag) => (
-                                            <TableRow key={tag.tag_id}>
+                                            <TableRow
+                                                key={tag.tag_id}
+                                                tabIndex={0}
+                                                role="button"
+                                                aria-label={`Edit ${tag.tag_name}`}
+                                                onClick={(event) => {
+                                                    if (isRowClickIgnored(event.target)) return;
+                                                    openEdit(tag);
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (
+                                                        event.key !== "Enter" &&
+                                                        event.key !== " "
+                                                    )
+                                                        return;
+                                                    if (isRowClickIgnored(event.target)) return;
+                                                    event.preventDefault();
+                                                    openEdit(tag);
+                                                }}
+                                                className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                            >
                                                 <TableCell
                                                     className="max-w-40 truncate font-mono text-xs"
                                                     title={tag.tag_code}
@@ -354,19 +409,27 @@ export function TagSettings() {
                                                         <Button
                                                             variant="ghost"
                                                             size="icon-sm"
+                                                            data-no-row-click
                                                             aria-label={`Edit ${tag.tag_name}`}
                                                             title="Edit tag"
-                                                            onClick={() => openEdit(tag)}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                openEdit(tag);
+                                                            }}
                                                         >
                                                             <Pencil className="size-4" />
                                                         </Button>
                                                         <Button
                                                             variant="ghost"
                                                             size="icon-sm"
+                                                            data-no-row-click
                                                             aria-label={`Deactivate ${tag.tag_name}`}
                                                             title="Deactivate tag"
                                                             disabled={!flagOn(tag.is_active)}
-                                                            onClick={() => setConfirmDeactivate(tag)}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setConfirmDeactivate(tag);
+                                                            }}
                                                         >
                                                             <PowerOff className="size-4" />
                                                         </Button>

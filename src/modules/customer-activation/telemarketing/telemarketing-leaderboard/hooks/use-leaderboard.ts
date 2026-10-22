@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getLeaderboard } from "../providers/leaderboard-provider";
-import type { LeaderboardRow } from "../types/leaderboard.schema";
+import type { LeaderboardPeriod, LeaderboardRange, LeaderboardRow } from "../types/leaderboard.schema";
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
-/** Month-to-date agent leaderboard state. */
-export function useLeaderboard() {
+/** Gamified agent leaderboard state for a rolling window. */
+export function useLeaderboard(period: LeaderboardPeriod = 30) {
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [range, setRange] = useState<LeaderboardRange | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +20,9 @@ export function useLeaderboard() {
     setIsLoading(true);
     setError(null);
     try {
-      setRows(await getLeaderboard());
+      const data = await getLeaderboard(period);
+      setRows(data.rows);
+      setRange(data.range);
     } catch (err) {
       const message = toMessage(err);
       setError(message);
@@ -27,11 +30,11 @@ export function useLeaderboard() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [period]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { rows, isLoading, error, refresh };
+  return { rows, range, period, isLoading, error, refresh };
 }
