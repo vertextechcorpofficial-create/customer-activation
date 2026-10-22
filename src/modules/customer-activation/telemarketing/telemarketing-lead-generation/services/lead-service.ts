@@ -38,7 +38,7 @@ export interface DuplicateMatch {
 
 export type CreateLeadResult =
     | { duplicate: true; matched: DuplicateMatch }
-    | { duplicate: false; lead: Lead };
+    | { duplicate: false; lead: Lead; provenance_recorded: boolean };
 
 interface DedupeTarget {
     table: string;
@@ -48,12 +48,42 @@ interface DedupeTarget {
     labelFields: string[];
 }
 
+// Dedupe answers "have we already created this lead" — not "does this
+// entity exist somewhere". Leads are imported FROM client databases, while
+// the central `customer` table holds a different population (seeded from
+// other tenants), so comparing an import against it produces cross-database
+// false positives. `telemarketing_lead` is the table we write to, so it is
+// the only dedupe target.
 const DEDUPE_TARGETS: DedupeTarget[] = [
     { table: TABLE, emailFields: ["email"], mobileFields: ["mobile"], idField: "lead_id", labelFields: ["company_name"] },
-    { table: "customer", emailFields: ["customer_email"], mobileFields: ["contact_number"], idField: "id", labelFields: ["customer_name"] },
-    { table: "company_list", emailFields: ["company_email"], mobileFields: ["company_contact"], idField: "company_id", labelFields: ["company_name"] },
-    { table: "dealer_list", emailFields: ["dealer_email"], mobileFields: ["dealer_contact"], idField: "dealer_id", labelFields: ["dealer_name"] },
 ];
+
+// ponytail: data-hygiene workaround — the real fix is source data cleanup,
+// and this list is the ceiling. These shared placeholder mobiles must never
+// act as identity.
+const PLACEHOLDER_MOBILES = new Set(["0", "00", "0000000000", "09123456789", "09000000000", "1234567890"]);
+
+const PLACEHOLDER_EMAILS = new Set(["", "-", "n/a", "none", "test@test.com"]);
+
+function usableEmail(email?: string | null): string | null {
+    const mail = (email ?? "").trim().toLowerCase();
+    if (!mail || PLACEHOLDER_EMAILS.has(mail)) return null;
+    const at = mail.indexOf("@");
+    if (at <= 0) return null;
+    if (mail.indexOf(".", at) <= at + 1) return null;
+    return mail;
+}
+
+function usableMobile(mobile?: string | null): string | null {
+    const cell = (mobile ?? "").trim();
+    if (!cell) return null;
+    const stripped = cell.replace(/[\s\-()]/g, "");
+    const digits = stripped.replace(/\D/g, "");
+    const plausible = /^09\d{9}$/.test(stripped) || /^09\d{9}$/.test(digits) || /^\+?639\d{9}$/.test(stripped) || /^639\d{9}$/.test(digits);
+    if (!plausible) return null;
+    if (PLACEHOLDER_MOBILES.has(cell) || PLACEHOLDER_MOBILES.has(digits) || PLACEHOLDER_MOBILES.has(stripped)) return null;
+    return cell;
+}
 
 export function decodeUserId(token: string): number | null {
     const payload = decodeJwtPayload(token);
@@ -111,8 +141,15 @@ function labelOf(row: Record<string, unknown>, fields: string[]): string {
 }
 
 async function findDuplicate(email?: string | null, mobile?: string | null): Promise<DuplicateMatch | null> {
-    const mail = (email ?? "").trim().toLowerCase();
-    const cell = (mobile ?? "").trim();
+    // Only plausibly-identifying contact values act as dedupe keys. When
+    // NEITHER a valid email NOR a valid mobile remains, skip the lookup and
+    // allow the create — never 409 an import just because the source row has
+    // no usable contact. When only one is usable, dedupe on that one only.
+    // Invariant: a repeat of the SAME import still 409s, because the repeat
+    // carries the same valid email (e.g. cristina@gmail.com) and the email
+    // branch matches the lead row created by the first import.
+    const mail = usableEmail(email);
+    const cell = usableMobile(mobile);
     if (!mail && !cell) return null;
     for (const target of DEDUPE_TARGETS) {
         const clauses: Record<string, unknown>[] = [];
@@ -168,7 +205,8 @@ async function resolveFirstActiveStage(): Promise<number | null> {
 
 export async function listLeads(filters: LeadFilters): Promise<LeadListResult> {
     const page = Math.max(1, Math.trunc(filters.page) || 1);
-    const limit = Math.min(100, Math.max(1, Math.trunc(filters.limit) || 20));
+    // Default matches the module page size (pipeline lead list uses 10).
+    const limit = Math.min(100, Math.max(1, Math.trunc(filters.limit) || 10));
     const clauses: Record<string, unknown>[] = [];
     if (filters.stageId !== undefined) clauses.push({ stage_id: { _eq: filters.stageId } });
     if (filters.source) clauses.push({ source: { _eq: filters.source } });
@@ -207,6 +245,24 @@ function isUniqueViolation(body: unknown): boolean {
     return Array.isArray(errors) && errors[0]?.extensions?.code === "RECORD_NOT_UNIQUE";
 }
 
+// Whether `telemarketing_lead` carries the `dealer_id` provenance column,
+// detected ONCE per process. The column is applied by the owner (see
+// documentation/lead-generation-client-provenance-ddl.md); until then creates
+// must not fail — they omit the column and report provenance_recorded: false.
+let dealerIdColumn: boolean | null = null;
+
+async function telemarketingLeadHasDealerId(): Promise<boolean> {
+    if (dealerIdColumn !== null) return dealerIdColumn;
+    try {
+        const body = await dFetch<{ data?: Array<{ field?: string }> }>(`/fields/${TABLE}`);
+        const fields = Array.isArray(body?.data) ? body.data : [];
+        dealerIdColumn = fields.some((entry) => entry?.field === "dealer_id");
+    } catch {
+        dealerIdColumn = false;
+    }
+    return dealerIdColumn;
+}
+
 export async function createLead(input: LeadCreate, userId: number | null): Promise<CreateLeadResult> {
     const matched = await findDuplicate(input.email, input.mobile);
     if (matched) return { duplicate: true, matched };
@@ -216,8 +272,10 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
         throw new Error("INTERNAL_FAIL: No active stage available");
     }
     const now = phNow();
-    const { tag_ids, stage_id: _omitted, ...fields } = input;
+    const { tag_ids, stage_id: _omitted, dealer_id: requestedDealer, ...fields } = input;
     void _omitted;
+    const wantsProvenance = requestedDealer !== undefined && requestedDealer !== null;
+    const storeDealer = wantsProvenance && (await telemarketingLeadHasDealerId());
     // `lead_code` is derived from the current maximum, so two simultaneous creates can
     // collide on the UNIQUE key. Retry with a freshly derived code instead of surfacing
     // an opaque 500 - a genuine duplicate would have been caught by findDuplicate above.
@@ -228,8 +286,10 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
             method: "POST",
             body: JSON.stringify({
                 ...fields,
+                ...(storeDealer ? { dealer_id: requestedDealer } : {}),
                 stage_id: stageId,
                 lead_code: await nextLeadCode(),
+                // Retained for the shared database (NOT NULL column); not surfaced in this app.
                 validation_status: "new",
                 created_by: userId,
                 created_at: now,
@@ -266,7 +326,7 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
             if (link.status === "rejected") console.error("createLead: tag link failed", link.reason);
         }
     }
-    return { duplicate: false, lead };
+    return { duplicate: false, lead, provenance_recorded: !wantsProvenance || storeDealer };
 }
 
 export async function updateLead(leadId: number, input: LeadUpdate, userId: number | null): Promise<Lead | null> {

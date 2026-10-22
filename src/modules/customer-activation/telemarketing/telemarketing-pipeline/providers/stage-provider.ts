@@ -57,8 +57,8 @@ export function moveLeadStage(
   stageId: number,
   lostReason?: string,
   note?: string,
-): Promise<LeadView> {
-  return request<LeadView>(`/api/customer-activation/telemarketing/telemarketing-pipeline/leads/${leadId}/stage`, {
+): Promise<{ lead: LeadView; conversion: unknown }> {
+  return request<{ lead: LeadView; conversion: unknown }>(`/api/customer-activation/telemarketing/telemarketing-pipeline/leads/${leadId}/stage`, {
     method: "POST",
     body: JSON.stringify({ stage_id: stageId, lost_reason: lostReason, note }),
   });

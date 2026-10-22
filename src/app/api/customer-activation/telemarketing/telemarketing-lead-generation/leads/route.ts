@@ -56,7 +56,10 @@ export async function POST(req: NextRequest) {
                 { status: 409 },
             );
         }
-        return NextResponse.json({ success: true, data: result.lead }, { status: 201 });
+        return NextResponse.json(
+            { success: true, data: result.lead, provenance_recorded: result.provenance_recorded },
+            { status: 201 },
+        );
     } catch (error) {
         console.error("POST lead-generation leads failed:", error);
         return NextResponse.json({ success: false, message: "Failed to create lead" }, { status: 500 });

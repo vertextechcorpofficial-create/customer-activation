@@ -14,7 +14,7 @@ export const PERIOD_OPTIONS: Array<{ value: ReportPeriod; label: string }> = [
     { value: "last_90", label: "Last 90 days" },
 ];
 
-export const ActivityKindSchema = z.enum(["call", "email", "visit", "meeting", "note"]);
+export const ActivityKindSchema = z.enum(["call", "email", "visit", "meeting"]);
 export type ActivityKind = z.infer<typeof ActivityKindSchema>;
 
 export const KindBreakdownSchema = z.object({
@@ -22,7 +22,6 @@ export const KindBreakdownSchema = z.object({
     email: z.number().int().nonnegative(),
     visit: z.number().int().nonnegative(),
     meeting: z.number().int().nonnegative(),
-    note: z.number().int().nonnegative(),
 });
 export type KindBreakdown = z.infer<typeof KindBreakdownSchema>;
 

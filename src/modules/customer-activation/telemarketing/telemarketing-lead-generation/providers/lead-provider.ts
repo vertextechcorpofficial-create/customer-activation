@@ -28,7 +28,7 @@ export interface DuplicateMatch {
 
 export type LeadCreateOutcome =
     | { duplicate: true; matched: DuplicateMatch }
-    | { duplicate: false; lead: Lead };
+    | { duplicate: false; lead: Lead; provenance_recorded: boolean };
 
 interface Envelope<T> {
     success: boolean;
@@ -78,13 +78,15 @@ export async function createLead(input: LeadCreate): Promise<LeadCreateOutcome> 
     });
     const body = (await res.json().catch(() => null)) as (Envelope<Lead> & {
         errors?: { duplicate?: DuplicateMatch };
+        provenance_recorded?: unknown;
     }) | null;
     if (res.status === 409) {
         const matched = body?.errors?.duplicate;
         return { duplicate: true, matched: matched ?? { table: "", id: 0, label: messageOf(body, 409) } };
     }
     if (!res.ok || !body?.success) throw new Error(messageOf(body, res.status));
-    return { duplicate: false, lead: body.data as Lead };
+    // The server always sends this; default true so an older response cannot false-alarm.
+    return { duplicate: false, lead: body.data as Lead, provenance_recorded: body.provenance_recorded !== false };
 }
 
 export function updateLead(leadId: number, input: LeadUpdate): Promise<Lead> {

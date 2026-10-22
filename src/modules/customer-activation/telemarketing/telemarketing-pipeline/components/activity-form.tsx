@@ -74,7 +74,9 @@ export function ActivityForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className={kind === "note" ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-          <Label htmlFor="activity-kind">Type</Label>
+          <Label htmlFor="activity-kind">
+            Type <span className="text-destructive">*</span>
+          </Label>
           <Select value={kind} onValueChange={handleKindChange}>
             <SelectTrigger id="activity-kind" className="w-full">
               <SelectValue placeholder="Select type" />
@@ -91,7 +93,9 @@ export function ActivityForm({
 
         {kind !== "note" ? (
           <div className="space-y-2">
-            <Label htmlFor="activity-outcome">Outcome</Label>
+            <Label htmlFor="activity-outcome">
+              Outcome <span className="text-destructive">*</span>
+            </Label>
             <Select value={outcome} onValueChange={setOutcome}>
               <SelectTrigger id="activity-outcome" className="w-full">
                 <SelectValue placeholder="Select outcome" />
@@ -117,7 +121,7 @@ export function ActivityForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="What happened?"
-          className="resize-none"
+          className="resize-none min-h-[100px]"
         />
       </div>
 

@@ -57,7 +57,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContentInDialog, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
 import {
     Table,
     TableBody,
@@ -77,9 +77,9 @@ const flagOn = (v: AgentView["is_active"]) => Number(v) === 1;
 
 function AgentStatus({ agent }: { agent: AgentView }) {
     return flagOn(agent.is_active) ? (
-        <StatusBadge tone="info">Active</StatusBadge>
+        <StatusPill tone="success">Active</StatusPill>
     ) : (
-        <StatusBadge tone="neutral">Inactive</StatusBadge>
+        <StatusPill tone="neutral">Inactive</StatusPill>
     );
 }
 

@@ -1,5 +1,5 @@
 import type { LeadAgent } from "../types/pipeline.schema";
-import type { ClaimsView, PoolResult } from "../services/claim-service";
+import type { ClaimsView, PoolResult, PoolSort } from "../services/claim-service";
 
 /**
  * Client-safe wrappers around the pipeline pool + claim API routes.
@@ -15,6 +15,14 @@ interface Envelope<T> {
   errors?: unknown;
 }
 
+export interface PoolQueryParams {
+  search?: string;
+  stageId?: number;
+  sort?: PoolSort;
+  page?: number;
+  limit?: number;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -27,8 +35,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body.data as T;
 }
 
-export function getPool(page = 1, limit = 10): Promise<PoolResult> {
-  return request<PoolResult>(`${POOL_BASE}?page=${page}&limit=${limit}`);
+function poolQs(params: PoolQueryParams): string {
+  const search = new URLSearchParams();
+  if (params.search) search.set("search", params.search);
+  if (params.stageId !== undefined && params.stageId !== null) search.set("stageId", String(params.stageId));
+  if (params.sort) search.set("sort", params.sort);
+  if (params.page !== undefined) search.set("page", String(params.page));
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
+export function getPool(params: PoolQueryParams = {}, signal?: AbortSignal): Promise<PoolResult> {
+  const { page = 1, limit = 10 } = params;
+  const query = poolQs({ ...params, page, limit });
+  return request<PoolResult>(`${POOL_BASE}${query}`, { cache: "no-store", signal });
 }
 
 function claimUrl(leadId: number): string {

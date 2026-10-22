@@ -3,8 +3,16 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useDebounce } from "use-debounce";
-import { ChevronLeft, ChevronRight, RefreshCw, Search, SearchX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, ChevronsUpDown, RefreshCw, Search, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Empty,
   EmptyContent,
@@ -15,6 +23,7 @@ import {
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -23,7 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
+import { stageTone } from "../lib/stage-tone";
 import {
   Table,
   TableBody,
@@ -34,19 +44,10 @@ import {
 } from "@/components/ui/table";
 import { useLeadQuery } from "../hooks/use-lead-query";
 import { useStages } from "../hooks/use-stages";
-import { LEAD_SOURCES, type LeadRecord, type Stage } from "../types/pipeline.schema";
+import { LEAD_SOURCES, type Stage } from "../types/pipeline.schema";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 const ALL = "all";
-
-const VALIDATION_TONE: Record<LeadRecord["validation_status"], StatusTone> = {
-  new: "neutral",
-  for_validation: "info",
-  validated: "success",
-  duplicate: "warning",
-  invalid: "destructive",
-  rejected: "destructive",
-};
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -61,11 +62,102 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
-function stageTone(stage: Stage | undefined): StatusTone {
-  if (!stage) return "neutral";
-  if (Number(stage.is_won) === 1) return "success";
-  if (Number(stage.is_lost) === 1) return "destructive";
-  return "info";
+/** Searchable stage picker backed by the `telemarketing_stage` table. */
+function StageCombobox({
+  value,
+  onValueChange,
+  stages,
+  disabled,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  stages: Stage[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? stages.filter(
+        (stage) =>
+          stage.stage_name.toLowerCase().includes(query) ||
+          stage.stage_code.toLowerCase().includes(query),
+      )
+    : stages;
+  const selected =
+    value === ALL ? null : stages.find((stage) => String(stage.stage_id) === value);
+  const label = value === ALL ? "All stages" : (selected?.stage_name ?? "All stages");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id="lead-stage"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-11 w-full justify-between font-normal md:h-9"
+        >
+          <span className="min-w-0 flex-1 truncate text-left" title={label}>
+            {label}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search stages…"
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No stages found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={ALL}
+                title="All stages"
+                onSelect={() => {
+                  onValueChange(ALL);
+                  setOpen(false);
+                }}
+              >
+                <Check
+                  className={
+                    value === ALL
+                      ? "size-4 shrink-0 opacity-100"
+                      : "size-4 shrink-0 opacity-0"
+                  }
+                />
+                <span className="min-w-0 flex-1 truncate">All stages</span>
+              </CommandItem>
+              {filtered.map((stage) => (
+                <CommandItem
+                  key={stage.stage_id}
+                  value={String(stage.stage_id)}
+                  title={stage.stage_name}
+                  onSelect={() => {
+                    onValueChange(String(stage.stage_id));
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={
+                      value === String(stage.stage_id)
+                        ? "size-4 shrink-0 opacity-100"
+                        : "size-4 shrink-0 opacity-0"
+                    }
+                  />
+                  <span className="min-w-0 flex-1 truncate">{stage.stage_name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /** Every lead in the pipeline, filterable by stage, source or search term. */
@@ -129,26 +221,15 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[13rem_13rem_minmax(0,1fr)]">
         <div className="space-y-1.5">
           <Label htmlFor="lead-stage">Stage</Label>
-          <Select
+          <StageCombobox
             value={stageFilter}
+            stages={stages}
             disabled={stagesLoading}
             onValueChange={(value) => {
               setStageFilter(value);
               setPage(1);
             }}
-          >
-            <SelectTrigger id="lead-stage" className="h-11 w-full md:h-9">
-              <SelectValue placeholder="All stages" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All stages</SelectItem>
-              {stages.map((stage) => (
-                <SelectItem key={stage.stage_id} value={String(stage.stage_id)}>
-                  {stage.stage_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </div>
 
         <div className="space-y-1.5">
@@ -160,10 +241,10 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
               setPage(1);
             }}
           >
-            <SelectTrigger id="lead-source" className="h-11 w-full md:h-9">
-              <SelectValue placeholder="All sources" />
+            <SelectTrigger id="lead-source" className="h-11 w-full truncate md:h-9">
+              <SelectValue placeholder="All sources" className="truncate" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-60">
               <SelectItem value={ALL}>All sources</SelectItem>
               {LEAD_SOURCES.map((source) => (
                 <SelectItem key={source} value={source} className="capitalize">
@@ -238,6 +319,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
         </Empty>
       ) : (
         <>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -246,7 +328,6 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                 <TableHead className="max-w-48">Contact</TableHead>
                 <TableHead className="w-32">Source</TableHead>
                 <TableHead className="w-36">Stage</TableHead>
-                <TableHead className="w-36">Validation</TableHead>
                 <TableHead className="w-40">Next follow-up</TableHead>
                 <TableHead className="w-40">Last activity</TableHead>
               </TableRow>
@@ -279,21 +360,23 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                         {lead.mobile || lead.email || "—"}
                       </span>
                     </TableCell>
-                    <TableCell className="capitalize">
-                      {lead.source.replace(/_/g, " ")}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge tone={stageTone(stage)}>
-                        {stage?.stage_name ?? "Unknown stage"}
-                      </StatusBadge>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        tone={VALIDATION_TONE[lead.validation_status]}
-                        className="capitalize"
+                    <TableCell className="max-w-32">
+                      <span
+                        className="block truncate capitalize"
+                        title={lead.source.replace(/_/g, " ")}
                       >
-                        {lead.validation_status.replace(/_/g, " ")}
-                      </StatusBadge>
+                        {lead.source.replace(/_/g, " ")}
+                      </span>
+                    </TableCell>
+                    <TableCell className="max-w-36">
+                      <span
+                        className="block truncate"
+                        title={stage?.stage_name ?? "Unknown stage"}
+                      >
+                        <StatusPill tone={stage ? stageTone(stage) : "neutral"}>
+                          {stage?.stage_name ?? "Unknown stage"}
+                        </StatusPill>
+                      </span>
                     </TableCell>
                     <TableCell className="tabular-nums">
                       {formatDateTime(lead.next_follow_up_at)}
@@ -306,7 +389,9 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
               })}
             </TableBody>
           </Table>
+          </div>
 
+          {pageCount > 1 ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               {from}–{to} of {meta.total}
@@ -337,6 +422,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
               </Button>
             </div>
           </div>
+          ) : null}
         </>
       )}
     </div>

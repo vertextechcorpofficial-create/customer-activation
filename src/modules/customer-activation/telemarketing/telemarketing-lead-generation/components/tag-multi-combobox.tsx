@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Command,
@@ -24,7 +23,20 @@ interface TagOption {
     is_active: number | boolean;
 }
 
+// ponytail: hard ceiling of 100 active tags — never the full collection; the
+// list is filtered client-side by the Command input below.
 const TAGS_URL = "/api/customer-activation/telemarketing/telemarketing-tags?limit=100";
+
+function TagChip({ children, color }: { children: ReactNode; color?: string | null }) {
+    return (
+        <span
+            className="inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium whitespace-nowrap text-secondary-foreground"
+            style={color ? { backgroundColor: color + "1f" } : undefined}
+        >
+            {children}
+        </span>
+    );
+}
 
 /**
  * Searchable multi-select over `telemarketing_tag`.
@@ -43,8 +55,12 @@ export function TagMultiCombobox({
     const [tags, setTags] = useState<TagOption[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
 
+    // Lazy: fetch once on first open, never on mount — the dialog may never
+    // need tags, and a retry reuses the same path via `attempt`.
     useEffect(() => {
+        if (!open || tags.length > 0 || loading) return;
         let alive = true;
         (async () => {
             setLoading(true);
@@ -67,7 +83,7 @@ export function TagMultiCombobox({
         return () => {
             alive = false;
         };
-    }, []);
+    }, [open, attempt, tags.length, loading]);
 
     const selected = tags.filter((t) => value.includes(t.tag_id));
     const toggle = (id: number) =>
@@ -102,7 +118,26 @@ export function TagMultiCombobox({
                         <CommandInput placeholder="Search tags..." />
                         <CommandList className="max-h-64">
                             <CommandEmpty>
-                                {loading ? "Loading tags..." : (error ?? "No tags found.")}
+                                {loading ? (
+                                    "Loading tags..."
+                                ) : error ? (
+                                    <span className="grid gap-2 justify-items-center py-2">
+                                        <span>{error}</span>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => {
+                                                setError(null);
+                                                setAttempt((a) => a + 1);
+                                            }}
+                                        >
+                                            Retry
+                                        </Button>
+                                    </span>
+                                ) : (
+                                    "No tags found."
+                                )}
                             </CommandEmpty>
                             <CommandGroup>
                                 {tags.map((tag) => (
@@ -135,7 +170,7 @@ export function TagMultiCombobox({
             {selected.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                     {selected.map((tag) => (
-                        <Badge key={tag.tag_id} variant="secondary" className="gap-1">
+                        <TagChip key={tag.tag_id} color={tag.color}>
                             {tag.tag_name}
                             <button
                                 type="button"
@@ -145,7 +180,7 @@ export function TagMultiCombobox({
                             >
                                 <X className="size-3" aria-hidden />
                             </button>
-                        </Badge>
+                        </TagChip>
                     ))}
                 </div>
             ) : null}

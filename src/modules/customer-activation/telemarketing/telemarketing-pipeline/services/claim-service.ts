@@ -39,6 +39,12 @@ function phNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Manila" });
 }
 
+/**
+ * ponytail: stages are a small admin-managed dimension table — STAGE_CAP keeps
+ * the read bounded (no limit=-1) while covering any realistic pipeline.
+ */
+const STAGE_CAP = 100;
+
 /** Unwrap a Directus body, turning its `errors` array into a thrown Error. */
 function checked<T>(body: unknown, action: string): T {
   if (body === null) throw new Error(`Failed to ${action}`);
@@ -51,24 +57,58 @@ function checked<T>(body: unknown, action: string): T {
 
 async function nonTerminalStageIds(): Promise<number[]> {
   const { data } = checked<{ data: Stage[] }>(
-    await dFetch("/items/telemarketing_stage?limit=-1&fields=stage_id,is_won,is_lost"),
+    await dFetch(`/items/telemarketing_stage?limit=${STAGE_CAP}&fields=stage_id,is_won,is_lost`),
     "load stages",
   );
   return data.filter((stage) => !isTerminalStage(stage)).map((stage) => stage.stage_id);
 }
 
+/** Sort keys the pool listing understands. Code sorts in Directus; claimants sorts in memory after annotation. */
+export type PoolSort = "code" | "-code" | "claimants" | "-claimants";
+
+export interface PoolFilters {
+  agentId: number;
+  page: number;
+  limit: number;
+  search?: string;
+  stageId?: number;
+  sort?: PoolSort;
+}
+
 /** Leads in non-terminal stages, annotated with the caller's claim state. */
-export async function listPool(args: { agentId: number; page: number; limit: number }): Promise<PoolResult> {
+export async function listPool(args: PoolFilters): Promise<PoolResult> {
   const page = Math.max(1, args.page || 1);
-  const limit = Math.min(100, Math.max(1, args.limit || 20));
+  const limit = Math.min(50, Math.max(1, args.limit || 10));
   const stageIds = await nonTerminalStageIds();
   if (stageIds.length === 0) {
     return { items: [], meta: { total: 0, page, limit } };
   }
-  const filter = encodeURIComponent(JSON.stringify({ stage_id: { _in: stageIds } }));
+  const effectiveStages =
+    args.stageId !== undefined
+      ? stageIds.includes(args.stageId)
+        ? [args.stageId]
+        : []
+      : stageIds;
+  if (effectiveStages.length === 0) {
+    return { items: [], meta: { total: 0, page, limit } };
+  }
+  const clauses: Record<string, unknown>[] = [{ stage_id: { _in: effectiveStages } }];
+  const search = args.search?.trim();
+  if (search) {
+    clauses.push({
+      _or: [
+        { company_name: { _icontains: search } },
+        { lead_code: { _icontains: search } },
+        { contact_name: { _icontains: search } },
+        { mobile: { _icontains: search } },
+      ],
+    });
+  }
+  const sortParam = args.sort === "code" || args.sort === "-code" ? args.sort.replace("code", "lead_code") : "-created_at";
+  const filter = encodeURIComponent(JSON.stringify(clauses.length === 1 ? clauses[0] : { _and: clauses }));
   const body = checked<{ data: LeadView[]; meta?: { filter_count?: number } }>(
     await dFetch(
-      `/items/telemarketing_lead?filter=${filter}&sort=-created_at&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count`,
+      `/items/telemarketing_lead?filter=${filter}&sort=${sortParam}&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count`,
     ),
     "load pool",
   );
@@ -92,6 +132,10 @@ export async function listPool(args: { agentId: number; page: number; limit: num
       claimant_count: claimants.length,
     };
   });
+  if (args.sort === "claimants" || args.sort === "-claimants") {
+    const dir = args.sort === "claimants" ? 1 : -1;
+    items.sort((a, b) => dir * (a.claimant_count - b.claimant_count) || a.lead_id - b.lead_id);
+  }
   return {
     items,
     meta: { total: body.meta?.filter_count ?? items.length, page, limit },

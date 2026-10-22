@@ -9,7 +9,7 @@ function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
-export function usePipelineHealth(stuckDays = 7) {
+export function usePipelineHealth(period = 7) {
   const [data, setData] = useState<PipelineHealth | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export function usePipelineHealth(stuckDays = 7) {
     setIsLoading(true);
     setError(null);
     try {
-      setData(await fetchPipelineHealth(stuckDays));
+      setData(await fetchPipelineHealth(period));
     } catch (err) {
       const message = toMessage(err);
       setError(message);
@@ -26,7 +26,7 @@ export function usePipelineHealth(stuckDays = 7) {
     } finally {
       setIsLoading(false);
     }
-  }, [stuckDays]);
+  }, [period]);
 
   useEffect(() => {
     void refresh();

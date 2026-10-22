@@ -9,6 +9,12 @@ import { dFetch } from "../utils/directus";
 
 const COLLECTION = "telemarketing_stage";
 
+/**
+ * ponytail: stages are a small admin-managed dimension table — STAGE_CAP keeps
+ * the read bounded (no limit=-1) while covering any realistic pipeline.
+ */
+const STAGE_CAP = 100;
+
 interface DirectusEnvelope<T> {
   data?: T;
   errors?: Array<{ message?: string; extensions?: { code?: string } }>;
@@ -107,7 +113,7 @@ async function writeOrder(ordered: Stage[], actorId: number | null): Promise<voi
 
 /** All stages, pipeline order first — inactive stay listed so they can be reactivated. */
 export async function listStages(): Promise<Stage[]> {
-  const body = await request<Stage[]>(`/items/${COLLECTION}?fields=*&sort=stage_order&limit=-1`);
+  const body = await request<Stage[]>(`/items/${COLLECTION}?fields=*&sort=stage_order&limit=${STAGE_CAP}`);
   return body.data ?? [];
 }
 

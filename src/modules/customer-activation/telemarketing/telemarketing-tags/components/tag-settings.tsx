@@ -35,7 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
 import {
     Table,
@@ -53,9 +53,9 @@ const flagOn = (v: Tag["is_active"]) => Number(v) === 1;
 
 function TagStatus({ tag }: { tag: Tag }) {
     return flagOn(tag.is_active) ? (
-        <StatusBadge tone="info">Active</StatusBadge>
+        <StatusPill tone="success">Active</StatusPill>
     ) : (
-        <StatusBadge tone="neutral">Inactive</StatusBadge>
+        <StatusPill tone="neutral">Inactive</StatusPill>
     );
 }
 

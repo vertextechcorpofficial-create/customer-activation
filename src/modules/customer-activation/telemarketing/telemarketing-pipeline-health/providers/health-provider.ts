@@ -14,8 +14,10 @@ interface Envelope<T> {
   errors?: unknown;
 }
 
-export function fetchPipelineHealth(stuckDays = 7): Promise<PipelineHealth> {
-  return fetch(`${BASE}?stuckDays=${encodeURIComponent(String(stuckDays))}`).then(async (res) => {
+export function fetchPipelineHealth(period = 7): Promise<PipelineHealth> {
+  const value = String(period);
+  const query = `period=${encodeURIComponent(value)}&stuckDays=${encodeURIComponent(value)}`;
+  return fetch(`${BASE}?${query}`).then(async (res) => {
     const body = (await res.json().catch(() => null)) as Envelope<PipelineHealth> | null;
     if (!res.ok || !body?.success) throw new Error(body?.message ?? `Request failed (${res.status})`);
     return body.data as PipelineHealth;

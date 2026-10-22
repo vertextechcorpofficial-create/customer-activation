@@ -10,6 +10,9 @@ import { ActivityCreateSchema, type Activity, type ActivityCreate } from "../typ
 const ACTIVITIES = "telemarketing_activity";
 const LEADS = "telemarketing_lead";
 
+/** ponytail: per-lead history is capped at 200 (newest first) — a lead never needs more on screen. */
+const HISTORY_LIMIT = 200;
+
 /** Philippine wall-clock timestamp, e.g. "2026-10-21 09:30:00". */
 function phNow(): string {
   return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Manila" });
@@ -42,7 +45,7 @@ function errMsg(body: unknown): string {
 export async function listByLead(leadId: number): Promise<Activity[]> {
   if (!Number.isInteger(leadId) || leadId <= 0) throw new Error("Invalid lead id");
   const filter = encodeURIComponent(JSON.stringify({ lead_id: { _eq: leadId } }));
-  const body = await dFetch(`/items/${ACTIVITIES}?filter=${filter}&sort=-occurred_at&limit=-1`);
+  const body = await dFetch(`/items/${ACTIVITIES}?filter=${filter}&sort=-occurred_at&limit=${HISTORY_LIMIT}`);
   if (body !== null && typeof body === "object" && "errors" in body) throw new Error(errMsg(body));
   return many<Activity>(body);
 }

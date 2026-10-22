@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
 import { useClaims } from "../hooks/use-claims";
 
 function initials(name: string): string {
@@ -56,7 +56,9 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             Claimants
-            <StatusBadge tone="info">{claimants.length}</StatusBadge>
+            <StatusPill tone="neutral" className="rounded-full tabular-nums">
+              {claimants.length}
+            </StatusPill>
           </CardTitle>
           <CardDescription>
             Several agents can work the same lead. Claiming never takes it out of the pool — only a
@@ -120,7 +122,7 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
                   <span className="min-w-0 flex-1 truncate text-sm" title={claimant.display_name}>
                     {claimant.display_name}
                   </span>
-                  {isYou && <StatusBadge tone="info">you</StatusBadge>}
+                  {isYou && <StatusPill tone="info">you</StatusPill>}
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     {formatClaimedAt(claimant.claimed_at)}
                   </span>

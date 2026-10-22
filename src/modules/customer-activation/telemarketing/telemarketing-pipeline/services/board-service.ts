@@ -9,6 +9,12 @@
 import { dFetch } from "../utils/directus";
 import type { LeadAgent, LeadView, Stage } from "../types/pipeline.schema";
 
+/**
+ * ponytail: stages are a small admin-managed dimension table — STAGE_CAP keeps
+ * the read bounded (no limit=-1) while covering any realistic pipeline.
+ */
+const STAGE_CAP = 100;
+
 export interface BoardLead extends LeadView {
   claimant_count: number;
 }
@@ -42,7 +48,7 @@ export async function listBoardLeads({
   const limit = Math.min(100, Math.max(1, perStageLimit));
   const stageFilter = encodeURIComponent(JSON.stringify({ is_active: { _eq: 1 } }));
   const stages = checked<{ data: Stage[] }>(
-    await dFetch(`/items/telemarketing_stage?filter=${stageFilter}&sort=stage_order&limit=-1&fields=stage_id`),
+    await dFetch(`/items/telemarketing_stage?filter=${stageFilter}&sort=stage_order&limit=${STAGE_CAP}&fields=stage_id`),
     "load stages",
   ).data;
   if (!stages || stages.length === 0) return [];

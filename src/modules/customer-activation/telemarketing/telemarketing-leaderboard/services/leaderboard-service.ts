@@ -12,7 +12,8 @@ import type { LeaderboardRow } from "../types/leaderboard.schema";
  *   active is_primary claimant
  * - qualified = leads the agent actively claims that currently sit at or
  *   beyond the "Qualification" stage (by stage_order) and are not lost
- * - activities = activity rows logged by that agent in the window
+ * - activities = real-touch activity rows (call/email/visit/meeting) logged
+ *   by that agent in the window; `note` rows (stage-move history) are excluded
  */
 
 interface AgentRow {
@@ -49,7 +50,20 @@ interface ClaimedLeadRow {
 interface ActivityRow {
   activity_id: number;
   agent_id: number;
+  kind: string;
 }
+
+/**
+ * ponytail: reads are bounded — agents/stages/claims/conversions/activities
+ * capped at *_CAP rows. Counts stay exact under the ceiling; beyond it the
+ * oldest rows win via sort and the board degrades gracefully instead of
+ * OOMing on limit=-1.
+ */
+const AGENT_CAP = 10_000;
+const STAGE_CAP = 10_000;
+const CLAIM_CAP = 10_000;
+const CONVERTED_CAP = 10_000;
+const ACTIVITY_CAP = 10_000;
 
 /** Month-to-date start as PH wall time `YYYY-MM-01 00:00:00`. */
 function manilaMonthStart(): string {
@@ -89,11 +103,11 @@ export async function getLeaderboard(): Promise<LeaderboardRow[]> {
   const actFilter = encodeURIComponent(JSON.stringify({ occurred_at: { _gte: monthStart } }));
 
   const [agentBody, stageBody, claimBody, convertedBody, activityBody] = await Promise.all([
-    dFetch("/items/telemarketing_agent?limit=-1&fields=agent_id,display_name,is_active"),
-    dFetch("/items/telemarketing_stage?limit=-1&fields=stage_id,stage_code,stage_name,stage_order,is_lost"),
-    dFetch("/items/telemarketing_lead_agent?limit=-1&fields=lead_id,agent_id,is_primary,released_at"),
-    dFetch(`/items/telemarketing_lead?filter=${convFilter}&limit=-1&fields=lead_id,converted_at`),
-    dFetch(`/items/telemarketing_activity?filter=${actFilter}&limit=-1&fields=activity_id,agent_id`),
+    dFetch(`/items/telemarketing_agent?limit=${AGENT_CAP}&fields=agent_id,display_name,is_active`),
+    dFetch(`/items/telemarketing_stage?limit=${STAGE_CAP}&fields=stage_id,stage_code,stage_name,stage_order,is_lost`),
+    dFetch(`/items/telemarketing_lead_agent?limit=${CLAIM_CAP}&fields=lead_id,agent_id,is_primary,released_at`),
+    dFetch(`/items/telemarketing_lead?filter=${convFilter}&sort=converted_at&limit=${CONVERTED_CAP}&fields=lead_id,converted_at`),
+    dFetch(`/items/telemarketing_activity?filter=${actFilter}&sort=occurred_at&limit=${ACTIVITY_CAP}&fields=activity_id,agent_id,kind`),
   ]);
 
   const agents = rows<AgentRow>(checked(agentBody, "load agents"));
@@ -139,6 +153,12 @@ export async function getLeaderboard(): Promise<LeaderboardRow[]> {
 
   const activitiesByAgent = new Map<number, number>();
   for (const activity of activities) {
+    // Metrics-integrity: stage moves record themselves as `note` activities;
+    // counting them rewards bookkeeping, not selling — the activity component
+    // of the score uses only real touches (call/email/visit/meeting).
+    // Trade-off: manually written notes are excluded too; there is currently
+    // no field distinguishing manual from system notes, and that is the ceiling.
+    if (activity.kind === "note") continue;
     activitiesByAgent.set(activity.agent_id, (activitiesByAgent.get(activity.agent_id) ?? 0) + 1);
   }
 
@@ -148,7 +168,8 @@ export async function getLeaderboard(): Promise<LeaderboardRow[]> {
   if (claimedIds.length > 0 && qualOrder !== null) {
     const leadFilter = encodeURIComponent(JSON.stringify({ lead_id: { _in: claimedIds } }));
     const leadBody = checked(
-      await dFetch(`/items/telemarketing_lead?filter=${leadFilter}&limit=-1&fields=lead_id,stage_id`),
+      // ponytail: same 10_000 ceiling as the claim read above — one bulk read, no N+1.
+      await dFetch(`/items/telemarketing_lead?filter=${leadFilter}&limit=${CLAIM_CAP}&fields=lead_id,stage_id`),
       "load claimed leads",
     );
     for (const lead of rows<ClaimedLeadRow>(leadBody)) {

@@ -3,9 +3,17 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Empty,
   EmptyDescription,
@@ -14,15 +22,10 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
+import { stageTone } from "../lib/stage-tone";
 import { Textarea } from "@/components/ui/textarea";
 import { ActivityForm } from "./activity-form";
 import { ActivityTimeline } from "./activity-timeline";
@@ -31,16 +34,7 @@ import { useActivities } from "../hooks/use-activities";
 import { useLeadRecord } from "../hooks/use-lead-record";
 import { useStages } from "../hooks/use-stages";
 import { moveLeadStage } from "../providers/stage-provider";
-import type { LeadRecord, Stage } from "../types/pipeline.schema";
-
-const VALIDATION_TONE: Record<LeadRecord["validation_status"], StatusTone> = {
-  new: "neutral",
-  for_validation: "info",
-  validated: "success",
-  duplicate: "warning",
-  invalid: "destructive",
-  rejected: "destructive",
-};
+import type { Stage } from "../types/pipeline.schema";
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -51,6 +45,86 @@ function Field({ label, value }: { label: string; value?: string | null }) {
         {value}
       </dd>
     </div>
+  );
+}
+
+/** Searchable stage picker backed by the `telemarketing_stage` table. */
+function StageCombobox({
+  value,
+  onValueChange,
+  stages,
+  disabled,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  stages: Stage[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? stages.filter(
+        (stage) =>
+          stage.stage_name.toLowerCase().includes(query) ||
+          stage.stage_code.toLowerCase().includes(query),
+      )
+    : stages;
+  const selected = stages.find((stage) => String(stage.stage_id) === value);
+  const label = selected?.stage_name ?? "Select a stage";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id="lead-stage"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-11 w-full justify-between font-normal md:h-9"
+        >
+          <span className="min-w-0 flex-1 truncate text-left" title={label}>
+            {label}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search stages…"
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No stages found.</CommandEmpty>
+            <CommandGroup>
+              {filtered.map((stage) => (
+                <CommandItem
+                  key={stage.stage_id}
+                  value={String(stage.stage_id)}
+                  title={stage.stage_name}
+                  onSelect={() => {
+                    onValueChange(String(stage.stage_id));
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={
+                      value === String(stage.stage_id)
+                        ? "size-4 shrink-0 opacity-100"
+                        : "size-4 shrink-0 opacity-0"
+                    }
+                  />
+                  <span className="min-w-0 flex-1 truncate">{stage.stage_name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -152,16 +226,13 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
               {lead.lead_code} · {lead.source.replace(/_/g, " ")}
             </p>
           </div>
-          <StatusBadge tone={VALIDATION_TONE[lead.validation_status]} className="capitalize">
-            {lead.validation_status.replace(/_/g, " ")}
-          </StatusBadge>
         </div>
 
         {tags.length > 0 ? (
           <ul className="flex flex-wrap gap-1.5" aria-label="Lead tags">
             {tags.map((tag) => (
               <li key={tag.tag_id}>
-                <StatusBadge tone="neutral">
+                <StatusPill tone="neutral">
                   {tag.color ? (
                     <span
                       className="size-2 rounded-full"
@@ -170,7 +241,7 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
                     />
                   ) : null}
                   {tag.tag_name}
-                </StatusBadge>
+                </StatusPill>
               </li>
             ))}
           </ul>
@@ -186,27 +257,20 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="lead-stage">Current stage</Label>
-              <Select
+              <StageCombobox
                 value={String(lead.stage_id)}
+                stages={stages}
                 disabled={stagesLoading || isMoving}
                 onValueChange={handleStageChange}
-              >
-                <SelectTrigger id="lead-stage" className="h-11 w-full md:h-9">
-                  <SelectValue placeholder="Select a stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {stages.map((stage) => (
-                    <SelectItem
-                      key={stage.stage_id}
-                      value={String(stage.stage_id)}
-                    >
-                      {stage.stage_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Now in {currentStage?.stage_name ?? "an unknown stage"}.
+              />
+              <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                Now in{" "}
+                {currentStage ? (
+                  <StatusPill tone={stageTone(currentStage)}>{currentStage.stage_name}</StatusPill>
+                ) : (
+                  "an unknown stage"
+                )}
+                .
               </p>
             </div>
 

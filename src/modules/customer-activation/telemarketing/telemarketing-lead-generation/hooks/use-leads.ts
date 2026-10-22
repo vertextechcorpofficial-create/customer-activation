@@ -44,6 +44,11 @@ export function useLeads(params: LeadListParams = {}) {
                     return null;
                 }
                 toast.success(`Lead ${outcome.lead.lead_code} created`);
+                if (!outcome.provenance_recorded) {
+                    toast.warning("Client provenance not stored", {
+                        description: "The dealer_id column is not applied yet — see the provenance doc.",
+                    });
+                }
                 await refresh();
                 return outcome.lead;
             } catch (err) {
@@ -56,7 +61,7 @@ export function useLeads(params: LeadListParams = {}) {
 
     return {
         items: data?.items ?? [],
-        meta: data?.meta ?? { total: 0, page: 1, limit: 20 },
+        meta: data?.meta ?? { total: 0, page: 1, limit: 10 },
         isLoading,
         error,
         refresh,

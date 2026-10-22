@@ -1,7 +1,7 @@
 "use client";
 
 import type { Activity } from "../types/pipeline.schema";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { StatusPill, type Tone } from "./status-pill";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
@@ -28,7 +28,7 @@ const KIND_ICON: Record<Activity["kind"], LucideIcon> = {
   note: StickyNote,
 };
 
-const OUTCOME_TONE: Record<string, StatusTone> = {
+const OUTCOME_TONE: Record<string, Tone> = {
   connected: "success",
   interested: "success",
   callback: "info",
@@ -100,9 +100,9 @@ export function ActivityTimeline({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium capitalize">{activity.kind}</span>
               {activity.outcome ? (
-                <StatusBadge tone={tone} className="capitalize">
+                <StatusPill tone={tone} className="capitalize">
                   {activity.outcome.replace(/_/g, " ")}
-                </StatusBadge>
+                </StatusPill>
               ) : null}
             </div>
 

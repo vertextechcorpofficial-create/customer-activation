@@ -40,7 +40,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Stage } from "../types/pipeline.schema";
@@ -53,12 +53,12 @@ const flagOn = (v: Stage["is_won"]) => Number(v) === 1;
 function StageStatus({ stage }: { stage: Stage }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {flagOn(stage.is_won) && <StatusBadge tone="success">Won</StatusBadge>}
-      {flagOn(stage.is_lost) && <StatusBadge tone="destructive">Lost</StatusBadge>}
+      {flagOn(stage.is_won) && <StatusPill tone="success">Won</StatusPill>}
+      {flagOn(stage.is_lost) && <StatusPill tone="destructive">Lost</StatusPill>}
       {flagOn(stage.is_active) ? (
-        <StatusBadge tone="info">Active</StatusBadge>
+        <StatusPill tone="info">Active</StatusPill>
       ) : (
-        <StatusBadge tone="neutral">Inactive</StatusBadge>
+        <StatusPill tone="neutral">Inactive</StatusPill>
       )}
     </div>
   );

@@ -13,7 +13,10 @@ const COOKIE = "vos_access_token";
 
 const PoolQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(10),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  search: z.string().max(191).optional(),
+  stageId: z.coerce.number().int().positive().optional(),
+  sort: z.enum(["code", "-code", "claimants", "-claimants"]).optional(),
 });
 
 /** Leads in non-terminal stages — claiming never removes a lead from here. */
@@ -21,9 +24,19 @@ export async function GET(req: NextRequest) {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   const query = req.nextUrl.searchParams;
+  // Absent filters sometimes arrive serialised ("null"/"undefined"/"") — treat those as missing.
+  const absent = (value: string | null): string | undefined => {
+    if (value === null) return undefined;
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed === "null" || trimmed === "undefined") return undefined;
+    return value;
+  };
   const parsed = PoolQuerySchema.safeParse({
-    page: query.get("page") || undefined,
-    limit: query.get("limit") || undefined,
+    page: absent(query.get("page")),
+    limit: absent(query.get("limit")),
+    search: absent(query.get("search")),
+    stageId: absent(query.get("stageId")),
+    sort: absent(query.get("sort")),
   });
   if (!parsed.success)
     return NextResponse.json(
