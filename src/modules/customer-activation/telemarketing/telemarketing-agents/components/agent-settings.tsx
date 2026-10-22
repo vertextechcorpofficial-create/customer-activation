@@ -162,7 +162,7 @@ function UserCombobox({
                         )}
                     </Button>
                 </PopoverTrigger>
-                <PopoverContentInDialog className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <PopoverContentInDialog className="w-(--radix-popover-trigger-width) p-0" align="start">
                     <Command shouldFilter={false}>
                         <CommandInput
                             placeholder="Type a name or email…"
@@ -290,7 +290,7 @@ export function AgentSettings() {
     };
 
     return (
-        <div className="mx-auto w-full max-w-[1600px] space-y-6">
+        <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
                     <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agents</h1>
@@ -399,7 +399,7 @@ export function AgentSettings() {
                             </ul>
 
                             <div className="hidden overflow-x-auto md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                                <Table className="min-w-[720px]">
+                                <Table className="min-w-3xl">
                                     <TableHeader className="bg-muted/30">
                                         <TableRow>
                                             <TableHead className="w-40">Code</TableHead>
@@ -407,7 +407,7 @@ export function AgentSettings() {
                                             <TableHead className="w-56">User email</TableHead>
                                             <TableHead className="w-28 text-right">Daily target</TableHead>
                                             <TableHead className="w-28">Status</TableHead>
-                                            <TableHead className="w-[120px] text-center">Actions</TableHead>
+                                            <TableHead className="w-32 text-center">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -490,7 +490,7 @@ export function AgentSettings() {
             </Card>
 
             <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
-                <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+                <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
                     <DialogHeader className="px-6 pt-6">
                         <DialogTitle className="line-clamp-1">
                             {dialog?.mode === "edit" ? "Edit agent" : "Register agent"}

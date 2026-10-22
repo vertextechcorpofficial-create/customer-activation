@@ -170,7 +170,7 @@ export function PerUserTable({
                                                             )}
                                                         />
                                                         <span
-                                                            className="block max-w-[160px] truncate font-medium sm:max-w-[220px]"
+                                                            className="block max-w-40 truncate font-medium sm:max-w-56"
                                                             title={row.display_name}
                                                         >
                                                             {row.display_name}

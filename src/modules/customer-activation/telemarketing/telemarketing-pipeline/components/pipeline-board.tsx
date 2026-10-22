@@ -231,7 +231,7 @@ function LeadCard({
           if (!open) setLostTarget(null);
         }}
       >
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Move to {lostTarget?.stage_name}</DialogTitle>
             <DialogDescription>A lost stage closes the lead. Record why it was lost.</DialogDescription>
@@ -279,7 +279,7 @@ function StageColumn({
   const hidden = Math.max(total - visible.length, 0);
 
   return (
-    <section className="flex min-h-[420px] w-64 shrink-0 snap-start flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3">
+    <section className="flex min-h-96 w-64 shrink-0 snap-start flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3">
       <header className="flex items-center justify-between gap-2">
         <h2 className="min-w-0 truncate text-sm font-semibold" title={stage.stage_name}>
           {stage.stage_name}

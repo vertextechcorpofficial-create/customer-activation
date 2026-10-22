@@ -88,13 +88,13 @@ function SourceTable({
                 <TableBody>
                     {rows.map((row) => (
                         <TableRow key={`${row.source}-${row.id}`}>
-                            <TableCell className="max-w-[180px] truncate font-medium">
+                            <TableCell className="max-w-44 truncate font-medium">
                                 {row.name}
                             </TableCell>
-                            <TableCell className="max-w-[160px] truncate text-muted-foreground">
+                            <TableCell className="max-w-40 truncate text-muted-foreground">
                                 {row.contact ?? row.email ?? "—"}
                             </TableCell>
-                            <TableCell className="hidden max-w-[140px] truncate text-muted-foreground md:table-cell">
+                            <TableCell className="hidden max-w-36 truncate text-muted-foreground md:table-cell">
                                 {[row.city, row.province].filter(Boolean).join(", ") || "—"}
                             </TableCell>
                             <TableCell className="text-right">

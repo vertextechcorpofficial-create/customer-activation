@@ -63,13 +63,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         { status: 403 },
       );
     }
-    const lead = await moveStage(leadId, parsed.data.stage_id, {
+    const result = await moveStage(leadId, parsed.data.stage_id, {
       lostReason: parsed.data.lost_reason,
       note: parsed.data.note,
       userId: userIdFrom(token),
       agentId,
     });
-    return NextResponse.json({ success: true, data: lead });
+    return NextResponse.json({ success: true, data: result.lead, conversion: result.conversion });
   } catch (error) {
     const raw = error instanceof Error ? error.message : "Failed to move the lead";
     console.error("POST pipeline lead stage failed:", error);

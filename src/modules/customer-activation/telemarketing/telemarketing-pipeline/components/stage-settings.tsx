@@ -262,7 +262,7 @@ export function StageSettings() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-6">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="grid gap-1">
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Stage settings</h1>
@@ -346,14 +346,14 @@ export function StageSettings() {
               </ul>
 
               <div className="hidden md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                <Table className="min-w-[640px]">
+                <Table className="min-w-2xl">
                   <TableHeader className="bg-muted/30">
                     <TableRow>
                       <TableHead className="w-16">Order</TableHead>
                       <TableHead className="w-40">Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead className="w-44">Status</TableHead>
-                      <TableHead className="w-[180px] text-center">Actions</TableHead>
+                      <TableHead className="w-44 text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -426,7 +426,7 @@ export function StageSettings() {
       </Card>
 
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent className="w-[95vw] max-h-[85vh] flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+        <DialogContent className="w-[95vw] max-h-[85vh] flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle className="line-clamp-1">{dialog?.mode === "edit" ? "Edit stage" : "New stage"}</DialogTitle>
             <DialogDescription>

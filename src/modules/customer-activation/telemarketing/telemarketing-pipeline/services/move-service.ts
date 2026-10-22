@@ -5,6 +5,7 @@
 
 import { dFetch } from "../utils/directus";
 import type { LeadView, Stage } from "../types/pipeline.schema";
+import { convertLeadToCustomer, type ConversionResult } from "./conversion-service";
 
 const LEADS = "telemarketing_lead";
 const ACTIVITIES = "telemarketing_activity";
@@ -28,18 +29,28 @@ export interface MoveOptions {
   agentId?: number;
 }
 
+export interface MoveResult {
+  lead: LeadView;
+  /** Set only when the move landed on a won stage. */
+  conversion: ConversionResult | { error: string } | null;
+}
+
 /**
  * Move a lead to another stage.
+ * Landing on a won stage also converts it: one `customer` row plus the
+ * two-way link. Conversion failure does not undo the move — it is reported
+ * back so the caller can retry, and the conversion itself is idempotent.
+ *
  * @param leadId - The lead id.
  * @param stageId - The target stage id.
  * @param opts - Lost reason (required on a lost stage), note, audit ids.
- * @returns The lead in its new stage.
+ * @returns The lead in its new stage, plus conversion outcome.
  */
 export async function moveStage(
   leadId: number,
   stageId: number,
   opts: MoveOptions = {},
-): Promise<LeadView> {
+): Promise<MoveResult> {
   const stage = readData<Stage>(await dFetch(`/items/${STAGES}/${stageId}`));
   if (!stage) {
     console.error("pipeline/moveStage: stage not found", stageId);
@@ -68,9 +79,25 @@ export async function moveStage(
     throw new Error("INTERNAL_FAIL: Could not move the lead");
   }
 
+  // Conversion: only on a won stage, and only once per lead.
+  let conversion: ConversionResult | { error: string } | null = null;
+  if (Number(stage.is_won) === 1 && !lead.converted_customer_id) {
+    try {
+      conversion = await convertLeadToCustomer(lead, opts.userId ?? null);
+      lead.converted_customer_id = conversion.customerId;
+      lead.converted_at = now;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Conversion failed";
+      console.error("pipeline/moveStage: conversion failed", message);
+      conversion = { error: message };
+    }
+  }
+
+  const convertedNote =
+    conversion && !("error" in conversion) ? ` - converted to customer ${conversion.customerCode}` : "";
   const note =
     opts.note?.trim() ||
-    `Stage moved to ${stage.stage_name}${lostReason ? ` - ${lostReason}` : ""}`;
+    `Stage moved to ${stage.stage_name}${lostReason ? ` - ${lostReason}` : ""}${convertedNote}`;
   try {
     const activity = await dFetch(`/items/${ACTIVITIES}`, {
       method: "POST",
@@ -91,5 +118,5 @@ export async function moveStage(
     console.error("pipeline/moveStage: activity note failed", error);
   }
 
-  return lead;
+  return { lead, conversion };
 }
