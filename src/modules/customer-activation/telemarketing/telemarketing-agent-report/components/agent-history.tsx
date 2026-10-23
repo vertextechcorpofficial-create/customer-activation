@@ -23,11 +23,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAgentHistory } from "../hooks/use-agent-history";
+import { PeriodSelect } from "../../_shared/period-select";
 import type {
     AgentHistory as AgentHistoryData,
     AgentHistoryActivity,
 } from "../services/agent-history-service";
-import type { ReportPeriod } from "../types/report.schema";
+import { PERIOD_OPTIONS, type ReportPeriod } from "../types/report.schema";
 import { DonutChart } from "./donut-chart";
 import { StatusPill, type Tone } from "./status-pill";
 
@@ -39,12 +40,12 @@ const KIND_ICON: Record<string, LucideIcon> = {
     note: StickyNote,
 };
 
-/** Kind colour, mirroring the module-local status-pill tone vocabulary. */
+/** Kind colour — the same channel map as the index activity bars (per-user-table KIND_META). */
 const KIND_TONE: Record<string, Tone> = {
-    call: "info",
-    email: "primary",
-    visit: "warning",
-    meeting: "success",
+    call: "primary",
+    email: "info",
+    visit: "success",
+    meeting: "warning",
     note: "neutral",
 };
 
@@ -58,10 +59,10 @@ const KIND_BADGE: Record<Tone, string> = {
 };
 
 const KIND_TEXT: Record<string, string> = {
-    call: "text-info",
-    email: "text-primary",
-    visit: "text-warning",
-    meeting: "text-success",
+    call: "text-primary",
+    email: "text-info",
+    visit: "text-success",
+    meeting: "text-warning",
 };
 
 const MIX_ORDER = [
@@ -79,12 +80,6 @@ const OUTCOME_TONE: Record<string, Tone> = {
     wrong_number: "destructive",
     not_interested: "neutral",
 };
-
-const PERIOD_SEGMENTS: Array<{ value: ReportPeriod; label: string }> = [
-    { value: "mtd", label: "MTD" },
-    { value: "last_30", label: "30d" },
-    { value: "last_90", label: "90d" },
-];
 
 const MONTHS = [
     "Jan",
@@ -380,14 +375,14 @@ function rateGapChip(
 function WorkMixHalf({ history }: { history: AgentHistoryData }) {
     const total = MIX_ORDER.reduce((sum, { key }) => sum + history.breakdown[key], 0);
     const segments = [
-        { label: "Calls", value: history.breakdown.call, strokeClass: "stroke-info" },
-        { label: "Emails", value: history.breakdown.email, strokeClass: "stroke-primary" },
-        { label: "Visits", value: history.breakdown.visit, strokeClass: "stroke-warning" },
-        { label: "Meetings", value: history.breakdown.meeting, strokeClass: "stroke-success" },
+        { label: "Calls", value: history.breakdown.call, strokeClass: "stroke-primary" },
+        { label: "Emails", value: history.breakdown.email, strokeClass: "stroke-info" },
+        { label: "Visits", value: history.breakdown.visit, strokeClass: "stroke-success" },
+        { label: "Meetings", value: history.breakdown.meeting, strokeClass: "stroke-warning" },
     ];
     return (
         <section aria-label="Work mix" className="min-w-0">
-            <h3 className="text-sm font-semibold">Work mix</h3>
+            <h2 className="text-sm font-semibold">Work mix</h2>
             {total === 0 ? (
                 <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                     <Activity className="size-4 shrink-0" aria-hidden />
@@ -464,9 +459,9 @@ function VersusTeamHalf({ history }: { history: AgentHistoryData }) {
             className="min-w-0 lg:border-l lg:border-border lg:pl-6"
         >
             <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Versus team</h3>
+                <h2 className="text-sm font-semibold">Versus team</h2>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                    {team.agents} agents
+                    {team.agents} in team
                 </span>
             </div>
             <table className="mt-4 w-full min-w-0 text-sm" aria-label="Agent versus team averages">
@@ -497,6 +492,10 @@ function VersusTeamHalf({ history }: { history: AgentHistoryData }) {
                     ))}
                 </tbody>
             </table>
+            <p className="mt-2 text-xs text-muted-foreground">
+                Averages cover agents with activity this period; the team rate is pooled team
+                won ÷ claimed.
+            </p>
         </section>
     );
 }
@@ -555,7 +554,10 @@ function HistorySkeleton() {
 
 /** One agent's KPIs, activity timeline and claimed leads for a period. */
 export function AgentHistory({ agentId }: { agentId: number }) {
-    const { history, period, setPeriod, isLoading, error, refresh } = useAgentHistory(agentId);
+    const { history, period, setPeriod, isLoading, error, refresh } = useAgentHistory(
+        agentId,
+        "last_30",
+    );
     const router = useRouter();
 
     // Period changes refetch with the previous response still cached — keep it
@@ -603,28 +605,13 @@ export function AgentHistory({ agentId }: { agentId: number }) {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div
-                        role="group"
-                        aria-label="History period"
-                        className="inline-flex items-center gap-0.5 rounded-md border bg-muted/60 p-1"
-                    >
-                        {PERIOD_SEGMENTS.map((segment) => (
-                            <button
-                                key={segment.value}
-                                type="button"
-                                onClick={() => setPeriod(segment.value)}
-                                aria-pressed={period === segment.value}
-                                className={cn(
-                                    "rounded px-2.5 py-1 text-xs font-medium tabular-nums focus-visible:outline-2 focus-visible:outline-offset-2",
-                                    period === segment.value
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground",
-                                )}
-                            >
-                                {segment.label}
-                            </button>
-                        ))}
-                    </div>
+                    {/* Same control and default as the index list, so one agent's
+                        row and page describe the same window. */}
+                    <PeriodSelect
+                        value={period}
+                        options={PERIOD_OPTIONS}
+                        onChange={(value) => setPeriod(value as ReportPeriod)}
+                    />
                     <Button
                         variant="outline"
                         size="icon"
@@ -655,7 +642,8 @@ export function AgentHistory({ agentId }: { agentId: number }) {
                 <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[2fr_1fr]">
                     <section
                         aria-label="Activity timeline"
-                        className="min-h-0 min-w-0 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+                        tabIndex={0}
+                        className="min-h-0 min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
                     >
                         <div className="flex items-center gap-2 lg:sticky lg:top-0 lg:z-20 lg:bg-background lg:py-2">
                             <Activity className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -778,7 +766,8 @@ export function AgentHistory({ agentId }: { agentId: number }) {
 
                     <section
                         aria-label="Claimed leads"
-                        className="min-h-0 min-w-0 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+                        tabIndex={0}
+                        className="min-h-0 min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
                     >
                         <div className="flex items-center gap-2 lg:sticky lg:top-0 lg:z-20 lg:bg-background lg:py-2">
                             <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -797,25 +786,13 @@ export function AgentHistory({ agentId }: { agentId: number }) {
                                 {history.leads.map((lead) => (
                                     <li
                                         key={lead.lead_id}
-                                        tabIndex={0}
-                                        role="link"
-                                        aria-label={`Open lead ${lead.lead_code}, ${lead.company_name}`}
                                         onClick={(event) => {
                                             if (isRowClickIgnored(event.target)) return;
                                             router.push(
                                                 `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`,
                                             );
                                         }}
-                                        onKeyDown={(event) => {
-                                            if (event.key !== "Enter" && event.key !== " ")
-                                                return;
-                                            if (isRowClickIgnored(event.target)) return;
-                                            event.preventDefault();
-                                            router.push(
-                                                `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`,
-                                            );
-                                        }}
-                                        className="flex cursor-pointer items-center gap-3 rounded-md py-2 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="flex cursor-pointer items-center gap-3 rounded-md py-2 hover:bg-muted/50"
                                     >
                                         <Building2
                                             className="size-4 shrink-0 text-muted-foreground"

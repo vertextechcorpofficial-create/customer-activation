@@ -51,12 +51,15 @@ const PAGE_SIZE = 10;
 const flagOn = (v: Stage["is_won"]) => Number(v) === 1;
 
 function StageStatus({ stage }: { stage: Stage }) {
+  // A closed stage is terminal, so an enabled/disabled badge on it says nothing
+  // useful and reads as a contradiction next to "Won"/"Lost".
+  const terminal = flagOn(stage.is_won) || flagOn(stage.is_lost);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {flagOn(stage.is_won) && <StatusPill tone="success">Won</StatusPill>}
       {flagOn(stage.is_lost) && <StatusPill tone="destructive">Lost</StatusPill>}
-      {flagOn(stage.is_active) ? (
-        <StatusPill tone="info">Active</StatusPill>
+      {terminal ? null : flagOn(stage.is_active) ? (
+        <StatusPill tone="success">Active</StatusPill>
       ) : (
         <StatusPill tone="neutral">Inactive</StatusPill>
       )}
@@ -144,6 +147,7 @@ function StageActions({
         title="Move up"
         disabled={busy || index === 0}
         onClick={() => onMove(index, -1)}
+        className="focus-visible:ring-ring"
       >
         <ArrowUp className="size-4" />
       </Button>
@@ -154,6 +158,7 @@ function StageActions({
         title="Move down"
         disabled={busy || index === total - 1}
         onClick={() => onMove(index, 1)}
+        className="focus-visible:ring-ring"
       >
         <ArrowDown className="size-4" />
       </Button>
@@ -163,6 +168,7 @@ function StageActions({
         aria-label={`Edit ${stage.stage_name}`}
         title="Edit stage"
         onClick={() => onEdit(stage)}
+        className="focus-visible:ring-ring"
       >
         <Pencil className="size-4" />
       </Button>
@@ -173,6 +179,7 @@ function StageActions({
         title="Deactivate stage"
         disabled={busy || !flagOn(stage.is_active)}
         onClick={() => onDeactivate(stage)}
+        className="focus-visible:ring-ring"
       >
         <PowerOff className="size-4" />
       </Button>

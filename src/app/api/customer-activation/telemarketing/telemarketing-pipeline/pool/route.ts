@@ -16,7 +16,7 @@ const PoolQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
   search: z.string().max(191).optional(),
   stageId: z.coerce.number().int().positive().optional(),
-  sort: z.enum(["code", "-code", "claimants", "-claimants"]).optional(),
+  sort: z.enum(["code", "-code", "company", "-company", "claimants", "-claimants"]).optional(),
 });
 
 /** Leads in non-terminal stages — claiming never removes a lead from here. */

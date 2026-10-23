@@ -5,7 +5,6 @@ export { useLeaderboard } from "./hooks/use-leaderboard";
 export { LeaderboardTable } from "./components/leaderboard-table";
 export type { LeaderboardTableProps } from "./components/leaderboard-table";
 export { AgentDetail } from "./components/agent-detail";
-export { PeriodSegmentedControl } from "./components/period-segmented-control";
 export {
   MomentumBadge,
   RankDeltaBadge,

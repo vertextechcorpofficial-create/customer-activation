@@ -81,7 +81,7 @@ export async function TelemarketingPageShell({
                 </div>
 
                 <div className="flex h-full items-center px-2 sm:px-4 shrink-0 max-w-[48vw] sm:max-w-none overflow-hidden">
-                    <NavUser user={{ name, email, avatar: "/avatars/shadcn.jpg" }} />
+                    <NavUser user={{ name, email }} />
                 </div>
             </header>
 

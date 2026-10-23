@@ -11,12 +11,48 @@ const LEADS = "telemarketing_lead";
 const LEAD_TAGS = "telemarketing_lead_tag";
 const TAGS = "telemarketing_tag";
 
+/** Sort keys the lead list understands; a leading `-` reverses the order. */
+export type LeadSort =
+  | "code"
+  | "-code"
+  | "company"
+  | "-company"
+  | "stage"
+  | "-stage"
+  | "last_activity"
+  | "-last_activity"
+  | "next_follow_up"
+  | "-next_follow_up";
+
+/** Sort key -> column on `telemarketing_lead`. */
+const SORT_COLUMNS: Record<string, string> = {
+  code: "lead_code",
+  company: "company_name",
+  stage: "stage_id",
+  last_activity: "last_activity_at",
+  next_follow_up: "next_follow_up_at",
+};
+
 export interface LeadQueryFilters {
   stageId?: number;
   source?: string;
   search?: string;
+  sort?: LeadSort;
   page: number;
   limit: number;
+}
+
+/**
+ * Directus `sort` value for a sort key. `lead_id` is appended as a tiebreaker —
+ * half these columns are null on most rows, so without it a page boundary can
+ * repeat or skip records.
+ */
+function sortParam(sort: LeadSort | undefined): string {
+  if (!sort) return "-created_at,lead_id";
+  const descending = sort.startsWith("-");
+  const column = SORT_COLUMNS[descending ? sort.slice(1) : sort];
+  if (!column) return "-created_at,lead_id";
+  return `${descending ? "-" : ""}${column},lead_id`;
 }
 
 export interface LeadQueryMeta {
@@ -60,8 +96,8 @@ function readTotal(body: unknown): number {
 }
 
 /**
- * Lists leads with the given filters, newest first.
- * @param filters - Stage/source/search filters plus paging.
+ * Lists leads with the given filters, newest first unless `sort` orders them.
+ * @param filters - Stage/source/search/sort filters plus paging.
  * @returns The page of leads and its paging meta.
  */
 export async function listLeads(filters: LeadQueryFilters): Promise<LeadQueryResult> {
@@ -88,7 +124,7 @@ export async function listLeads(filters: LeadQueryFilters): Promise<LeadQueryRes
   const body = await dFetch(
     `/items/${LEADS}${qs({
       filter: clauses.length ? JSON.stringify({ _and: clauses }) : undefined,
-      sort: "-created_at",
+      sort: sortParam(filters.sort),
       limit: String(limit),
       offset: String((page - 1) * limit),
       meta: "filter_count",

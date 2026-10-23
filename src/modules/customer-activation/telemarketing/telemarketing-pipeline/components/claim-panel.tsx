@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, UserMinus, UserPlus, Users } from "lucide-react";
+import { Loader2, UserMinus, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { useClaims } from "../hooks/use-claims";
@@ -54,12 +53,12 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
+          <h2 className="flex items-center gap-2 font-semibold leading-none">
             Claimants
             <StatusPill tone="neutral" className="rounded-full tabular-nums">
               {claimants.length}
             </StatusPill>
-          </CardTitle>
+          </h2>
           <CardDescription>
             Several agents can work the same lead. Claiming never takes it out of the pool — only a
             terminal stage does.
@@ -93,21 +92,10 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
             {error}
           </p>
         ) : claimants.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Users />
-              </EmptyMedia>
-              <EmptyTitle>No one has claimed this lead</EmptyTitle>
-              <EmptyDescription>Claim it to start working it. Other agents can join you later.</EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={handleToggle} disabled={isSubmitting} className="min-h-11 md:min-h-0">
-                <UserPlus className="size-4" aria-hidden />
-                Claim this lead
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <p className="text-sm text-muted-foreground">
+            No one has claimed this lead. Use Claim above to start working it — other agents can join
+            you later.
+          </p>
         ) : (
           <ul className="divide-y divide-border">
             {claimants.map((claimant) => {

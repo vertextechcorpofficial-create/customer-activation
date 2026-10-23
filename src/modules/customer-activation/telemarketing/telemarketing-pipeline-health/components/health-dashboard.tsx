@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Activity,
+  ArrowRight,
   ArrowRightLeft,
-  Calendar,
-  ChevronRight,
   CircleAlert,
   Gauge,
   Lightbulb,
@@ -16,17 +16,11 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { PeriodSelect, rollingPeriodOptions } from "../../_shared/period-select";
 import { stageColor } from "./stage-tone";
 import { usePipelineHealth } from "../hooks/use-pipeline-health";
 import {
@@ -62,6 +56,16 @@ function deriveVerdict(stuckShare: number): Verdict {
   if (stuckShare >= 10) return "at risk";
   return "healthy";
 }
+
+// One instance of each section per page; the ids tie every card's heading to
+// the region landmark that wraps it.
+const STATUS_TITLE_ID = "pipeline-health-status-title";
+const STUCK_TITLE_ID = "pipeline-health-stuck-title";
+const FUNNEL_TITLE_ID = "pipeline-health-funnel-title";
+const DISTRIBUTION_TITLE_ID = "pipeline-health-distribution-title";
+const INSIGHTS_TITLE_ID = "pipeline-health-insights-title";
+
+const PERIOD_SELECT_OPTIONS = rollingPeriodOptions(PERIOD_OPTIONS);
 
 /**
  * Delta line for stuck / median-age / stalled stats. Lower is better, so a
@@ -99,17 +103,34 @@ function DeltaLine({ delta }: { delta: number | null | undefined }) {
   );
 }
 
+/**
+ * Renders the delta slot only when a comparison exists, so the four hero
+ * columns stay the same height instead of reserving a blank line for a
+ * `null` delta (the previous window is unavailable for a fresh dataset).
+ */
+function DeltaSlot({ delta }: { delta: number | null | undefined }) {
+  if (delta === null || delta === undefined) return null;
+  return (
+    <div className="mt-1">
+      <DeltaLine delta={delta} />
+    </div>
+  );
+}
+
 function HeroBand({ data }: { data: PipelineHealth }) {
   const stuckShare = data.totals.open === 0 ? 0 : (data.stuckTotal / data.totals.open) * 100;
   const verdict = deriveVerdict(stuckShare);
   return (
-    <Card className="bg-muted/60">
+    <Card role="region" aria-labelledby={STATUS_TITLE_ID} className="bg-muted/60">
       <CardContent className="flex flex-col gap-6 lg:flex-row lg:items-center">
         <div className="min-w-0 lg:w-60 lg:shrink-0">
-          <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <h2
+            id={STATUS_TITLE_ID}
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground"
+          >
             <span className={cn("size-2 shrink-0 rounded-full", VERDICT_DOT[verdict])} aria-hidden />
             Pipeline Status
-          </p>
+          </h2>
           <p className="mt-2 text-3xl font-bold tracking-tight">{VERDICT_LABEL[verdict]}</p>
           <p className="mt-1 text-sm text-muted-foreground">{VERDICT_SENTENCE[verdict]}</p>
         </div>
@@ -121,9 +142,10 @@ function HeroBand({ data }: { data: PipelineHealth }) {
           <div className="min-w-0 lg:border-l lg:border-border lg:pl-6">
             <p className="text-xs text-muted-foreground">Stuck</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums">{data.stuckTotal}</p>
-            <div className="mt-1">
-              <DeltaLine delta={data.deltas.stuck} />
-            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              No activity for more than {data.stuckDays} days
+            </p>
+            <DeltaSlot delta={data.deltas.stuck} />
           </div>
           <div className="min-w-0 lg:border-l lg:border-border lg:pl-6">
             <p className="text-xs text-muted-foreground">Median age in stage</p>
@@ -131,20 +153,16 @@ function HeroBand({ data }: { data: PipelineHealth }) {
               {data.medianAgeDays}
               <span className="text-sm font-normal text-muted-foreground"> days</span>
             </p>
-            <div className="mt-1">
-              <DeltaLine delta={data.deltas.medianAge} />
-            </div>
+            <DeltaSlot delta={data.deltas.medianAge} />
           </div>
           <div className="min-w-0 lg:border-l lg:border-border lg:pl-6">
             <p className="text-xs text-muted-foreground">Stalled stages</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums">{data.stalledStages}</p>
-            <div className="mt-1">
-              {data.stalledStages === 0 ? (
-                <p className="text-xs text-muted-foreground">No stalled stages</p>
-              ) : (
-                <DeltaLine delta={data.deltas.stalledStages} />
-              )}
-            </div>
+            {data.stalledStages === 0 ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">No stalled stages</p>
+            ) : (
+              <DeltaSlot delta={data.deltas.stalledStages} />
+            )}
           </div>
         </div>
       </CardContent>
@@ -157,10 +175,26 @@ const CHEVRON_MID =
   "polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%)";
 const CHEVRON_LAST = "polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)";
 
-function funnelValue(stage: StageHealth, mode: "count" | "percentage", openTotal: number): string {
-  if (mode === "count") return String(stage.leadCount);
-  if (openTotal === 0) return "0.0%";
-  return `${((stage.leadCount / openTotal) * 100).toFixed(1)}%`;
+/**
+ * Largest-remainder rounding in tenths of a percent, so the displayed stage
+ * shares sum to exactly 100.0 instead of drifting to 99.9.
+ *
+ * Only `leadCount` / open-stage total is used. The payload's per-stage `share`
+ * is deliberately ignored: it divides by `totals.total` (closed stages
+ * included), so it answers a different question than this open-lead funnel.
+ */
+function percentageTenths(counts: number[], total: number): number[] {
+  if (total <= 0) return counts.map(() => 0);
+  const exact = counts.map((count) => (count / total) * 1000);
+  const tenths = exact.map((value) => Math.floor(value));
+  const spare = 1000 - tenths.reduce((sum, value) => sum + value, 0);
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - tenths[index] }))
+    .sort((a, b) => b.remainder - a.remainder);
+  for (let i = 0; i < spare && i < byRemainder.length; i += 1) {
+    tenths[byRemainder[i].index] += 1;
+  }
+  return tenths;
 }
 
 function StageFunnelCard({ data }: { data: PipelineHealth }) {
@@ -171,16 +205,28 @@ function StageFunnelCard({ data }: { data: PipelineHealth }) {
   const openTotal = open.reduce((sum, s) => sum + s.leadCount, 0);
   const max = Math.max(1, ...open.map((s) => s.leadCount));
   const hasTerminalTotals = data.totals.won + data.totals.lost > 0;
+  const tenths = percentageTenths(
+    open.map((s) => s.leadCount),
+    openTotal,
+  );
+  const tenthsByStage = new Map(open.map((s, i) => [s.stage_id, tenths[i]]));
+  const value = (stage: StageHealth): string =>
+    mode === "count"
+      ? String(stage.leadCount)
+      : `${((tenthsByStage.get(stage.stage_id) ?? 0) / 10).toFixed(1)}%`;
 
   return (
-    <Card>
+    <Card role="region" aria-labelledby={FUNNEL_TITLE_ID}>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <CardTitle>Stage funnel</CardTitle>
+          <h2 id={FUNNEL_TITLE_ID} className="leading-none font-semibold">
+            Stage funnel
+          </h2>
           <CardDescription className="mt-1">Lead distribution across pipeline stages</CardDescription>
           {hasTerminalTotals && (
             <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-              Won {data.totals.won} · Lost {data.totals.lost}
+              Won {data.totals.won} · Lost {data.totals.lost} · {data.totals.conversionRate}% of
+              closed leads won
             </p>
           )}
         </div>
@@ -229,7 +275,7 @@ function StageFunnelCard({ data }: { data: PipelineHealth }) {
                       i === 0 ? "pr-6 pl-4" : last ? "pr-4 pl-7" : "px-6",
                     )}
                   >
-                    <p className="text-lg font-bold tabular-nums">{funnelValue(s, mode, openTotal)}</p>
+                    <p className="text-lg font-bold tabular-nums">{value(s)}</p>
                     <p className="truncate text-xs font-medium" title={s.stage_name}>
                       {s.stage_name}
                     </p>
@@ -237,7 +283,7 @@ function StageFunnelCard({ data }: { data: PipelineHealth }) {
                       className="mt-2 h-1 overflow-hidden rounded-full"
                       style={{ backgroundColor: `color-mix(in oklab, ${color} 25%, transparent)` }}
                       role="img"
-                      aria-label={`${s.stage_name}: ${funnelValue(s, mode, openTotal)}`}
+                      aria-label={`${s.stage_name}: ${value(s)}, average ${s.avgDaysInStage} days in stage`}
                     >
                       <div
                         className="h-full rounded-full"
@@ -261,13 +307,13 @@ function StageFunnelCard({ data }: { data: PipelineHealth }) {
                         {s.stage_name}
                       </p>
                       <p className="shrink-0 text-sm font-semibold tabular-nums">
-                        {funnelValue(s, mode, openTotal)}
+                        {value(s)}
                       </p>
                     </div>
                     <div
                       className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted"
                       role="img"
-                      aria-label={`${s.stage_name}: ${funnelValue(s, mode, openTotal)}`}
+                      aria-label={`${s.stage_name}: ${value(s)}, average ${s.avgDaysInStage} days in stage`}
                     >
                       <div
                         className="h-full rounded-full"
@@ -295,9 +341,11 @@ function DistributionCard({ data }: { data: PipelineHealth }) {
   const ticks = [4, 3, 2, 1, 0].map((i) => i * step);
 
   return (
-    <Card className="min-w-0">
+    <Card role="region" aria-labelledby={DISTRIBUTION_TITLE_ID} className="min-w-0">
       <CardHeader>
-        <CardTitle>Stage distribution</CardTitle>
+        <h2 id={DISTRIBUTION_TITLE_ID} className="leading-none font-semibold">
+          Stage distribution
+        </h2>
         <CardDescription className="mt-1">Number of leads in each stage</CardDescription>
       </CardHeader>
       <CardContent>
@@ -343,7 +391,7 @@ function DistributionCard({ data }: { data: PipelineHealth }) {
                             backgroundColor: color,
                           }}
                           role="img"
-                          aria-label={`${s.stage_name}: ${s.leadCount} leads`}
+                          aria-label={`${s.stage_name}: ${s.leadCount} ${s.leadCount === 1 ? "lead" : "leads"}`}
                         />
                       </div>
                     </div>
@@ -384,12 +432,12 @@ const INSIGHT_TONE_CIRCLE: Record<HealthInsight["tone"], string> = {
 
 function InsightsCard({ data }: { data: PipelineHealth }) {
   return (
-    <Card className="min-w-0">
+    <Card role="region" aria-labelledby={INSIGHTS_TITLE_ID} className="min-w-0">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <h2 id={INSIGHTS_TITLE_ID} className="flex items-center gap-2 leading-none font-semibold">
           <Lightbulb className="size-4 text-muted-foreground" aria-hidden />
           Key insights
-        </CardTitle>
+        </h2>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {data.insights.length === 0 ? (
@@ -415,7 +463,6 @@ function InsightsCard({ data }: { data: PipelineHealth }) {
                   <p className="text-sm font-medium">{insight.title}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{insight.detail}</p>
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               </div>
             );
           })
@@ -425,20 +472,87 @@ function InsightsCard({ data }: { data: PipelineHealth }) {
   );
 }
 
+/**
+ * The leads behind the "Stuck" figure. The payload's `stuck` array is the top
+ * slice (server cap) of exactly the population `stuckTotal` counts, so the
+ * rows here and the hero figure only diverge when the cap truncates.
+ */
+function StuckLeadsCard({ data }: { data: PipelineHealth }) {
+  const terminalStageIds = new Set(
+    data.stages.filter((stage) => stage.isTerminal).map((stage) => stage.stage_id),
+  );
+  // The API already scans open stages only; re-checking keeps a closed lead out
+  // of the list even if the payload ever widens.
+  const rows = data.stuck.filter((lead) => !terminalStageIds.has(lead.stage_id));
+  const threshold = data.stuckDays;
+  const total = data.stuckTotal;
+  const truncated = total > rows.length;
+
+  return (
+    <Card role="region" aria-labelledby={STUCK_TITLE_ID} className="min-w-0">
+      <CardHeader>
+        <h2 id={STUCK_TITLE_ID} className="leading-none font-semibold">
+          Stuck leads
+        </h2>
+        <CardDescription className="mt-1">
+          {total === 0
+            ? "Nothing to follow up."
+            : `${total} ${total === 1 ? "lead has" : "leads have"} had no activity for more than ${threshold} days.`}
+        </CardDescription>
+        <p className="text-xs text-muted-foreground">
+          Stuck means no activity for more than {threshold} days, the same window as the selected
+          period, so a wider period uses a wider threshold.
+        </p>
+        {truncated && (
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Showing the {rows.length} oldest of {total} stuck leads.
+          </p>
+        )}
+      </CardHeader>
+      {rows.length > 0 && (
+        <CardContent>
+          <ul className="flex flex-col divide-y divide-border">
+            {rows.map((lead) => (
+              <li
+                key={lead.lead_id}
+                className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 py-2 first:pt-0 last:pb-0"
+              >
+                <Link
+                  href={`/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`}
+                  aria-label={`Open lead ${lead.lead_code} ${lead.company_name}`}
+                  className="inline-flex shrink-0 items-center gap-1.5 font-mono text-xs underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2"
+                >
+                  {lead.lead_code}
+                  <ArrowRight className="size-3" aria-hidden />
+                </Link>
+                <p
+                  className="min-w-0 basis-full truncate text-sm font-medium sm:flex-1 sm:basis-auto"
+                  title={lead.company_name}
+                >
+                  {lead.company_name}
+                </p>
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  {lead.stage_name}
+                </span>
+                <p className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {lead.lastActivityAt == null
+                    ? `No activity since creation · ${lead.daysStuck}d`
+                    : `Last activity ${lead.daysStuck} ${lead.daysStuck === 1 ? "day" : "days"} ago`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <div className="flex min-w-0 flex-col gap-4 sm:gap-6" aria-live="polite" aria-busy="true">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Skeleton className="h-6 w-36" />
-          <Skeleton className="mt-2 h-4 w-56 max-w-full" />
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Skeleton className="h-9 w-36" />
-          <Skeleton className="size-9" />
-        </div>
-      </div>
       <Skeleton className="h-44 w-full" />
+      <Skeleton className="h-56 w-full" />
       <Skeleton className="h-64 w-full" />
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
         <Skeleton className="h-72 w-full" />
@@ -448,43 +562,47 @@ function LoadingSkeleton() {
   );
 }
 
+/**
+ * In-card failure state. A failed request keeps the dashboard shell — page
+ * chrome, title, filters — and offers Retry, so a transient upstream drop
+ * never replaces the app with the global error page.
+ */
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-6"
+    >
+      <h2 className="flex items-center gap-2 font-semibold leading-none">
+        <CircleAlert className="size-4 text-destructive" aria-hidden />
+        Could not load pipeline health
+      </h2>
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <Button variant="outline" onClick={onRetry}>
+        <RefreshCw className="size-4" aria-hidden />
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+function NoPipelineData() {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Activity />
+        </EmptyMedia>
+        <EmptyTitle>No pipeline data</EmptyTitle>
+        <EmptyDescription>There are no stages or leads to report on yet.</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
 export function HealthDashboard() {
-  const [period, setPeriod] = useState<Period>(7);
+  const [period, setPeriod] = useState<Period>(30);
   const { data, isLoading, error, refresh } = usePipelineHealth(period);
-
-  if (isLoading && !data) return <LoadingSkeleton />;
-
-  if (error && !data) {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-border p-10 text-center">
-        <CircleAlert className="size-6 text-destructive" aria-hidden />
-        <p className="text-sm text-destructive">{error}</p>
-        <Button
-          variant="outline"
-          onClick={() => {
-            void refresh();
-          }}
-        >
-          <RefreshCw className="size-4" aria-hidden />
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
-  if (!data || (data.totals.total === 0 && data.stages.length === 0)) {
-    return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Activity />
-          </EmptyMedia>
-          <EmptyTitle>No pipeline data</EmptyTitle>
-          <EmptyDescription>There are no stages or leads to report on yet.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
 
   return (
     <div className="flex min-w-0 flex-col gap-4 sm:gap-6">
@@ -496,27 +614,16 @@ export function HealthDashboard() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Select
+          <PeriodSelect
             value={String(period)}
-            onValueChange={(v) => {
-              const next = Number(v);
+            options={PERIOD_SELECT_OPTIONS}
+            onChange={(value) => {
+              const next = Number(value);
               if ((PERIOD_OPTIONS as readonly number[]).includes(next)) {
                 setPeriod(next as Period);
               }
             }}
-          >
-            <SelectTrigger className="w-40" aria-label="Period">
-              <Calendar className="size-4 text-muted-foreground" aria-hidden />
-              <SelectValue placeholder="Period" />
-            </SelectTrigger>
-            <SelectContent className="max-h-60">
-              {PERIOD_OPTIONS.map((p) => (
-                <SelectItem key={p} value={String(p)}>
-                  Last {p} days
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
           <Button
             variant="outline"
             size="icon"
@@ -530,15 +637,48 @@ export function HealthDashboard() {
         </div>
       </div>
 
-      {/* Period refetch keeps previous data on screen — no full-page flash. */}
-      <div aria-busy={isLoading} className={cn("flex min-w-0 flex-col gap-4 sm:gap-6", isLoading && "opacity-70")}>
-        <HeroBand data={data} />
-        <StageFunnelCard data={data} />
-        <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
-          <DistributionCard data={data} />
-          <InsightsCard data={data} />
+      {isLoading && !data ? (
+        <LoadingSkeleton />
+      ) : !data ? (
+        error ? (
+          <LoadError message={error} onRetry={() => void refresh()} />
+        ) : (
+          <NoPipelineData />
+        )
+      ) : data.totals.total === 0 && data.stages.length === 0 ? (
+        <NoPipelineData />
+      ) : (
+        // Period refetch keeps previous data on screen — no full-page flash.
+        <div
+          aria-busy={isLoading}
+          className={cn("flex min-w-0 flex-col gap-4 sm:gap-6", isLoading && "opacity-70")}
+        >
+          {error && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3"
+            >
+              <p className="min-w-0 text-sm">
+                <span className="font-medium">Could not refresh.</span>{" "}
+                <span className="text-muted-foreground">
+                  Showing the last successful load. {error}
+                </span>
+              </p>
+              <Button size="sm" variant="outline" onClick={() => void refresh()}>
+                <RefreshCw className="size-4" aria-hidden />
+                Retry
+              </Button>
+            </div>
+          )}
+          <HeroBand data={data} />
+          <StuckLeadsCard data={data} />
+          <StageFunnelCard data={data} />
+          <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
+            <DistributionCard data={data} />
+            <InsightsCard data={data} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

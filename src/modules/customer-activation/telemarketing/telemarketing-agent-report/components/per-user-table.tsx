@@ -49,6 +49,7 @@ interface PerUserTableProps {
     onRetry: () => void;
 }
 
+/** Canonical channel colours — the agent page donut/legend uses this same mapping. */
 const KIND_META = [
     { key: "call", label: "Calls", short: "C", Icon: Phone, bar: "bg-primary" },
     { key: "email", label: "Emails", short: "E", Icon: Mail, bar: "bg-info" },
@@ -120,7 +121,8 @@ function formatDbDateTime(value: string | null | undefined): string {
 
 function BreakdownDetail({ row }: { row: AgentReportRow }) {
     return (
-        <div className="flex flex-wrap gap-2 py-1">
+        // Capped to the visible scroller width so chips wrap instead of clipping mid-word.
+        <div className="flex max-w-[calc(100vw-6rem)] flex-wrap gap-2 py-1 md:max-w-none">
             {KIND_META.map(({ key, label, Icon }) => (
                 <span
                     key={key}
@@ -243,6 +245,14 @@ export function PerUserTable({
     const isActive =
         query.trim() !== "" || sortKey !== null || expandedIds.size > 0;
 
+    // Header count follows the module convention ("4 agents", "1 of 4 agents").
+    const countLabel =
+        error || isLoading
+            ? "—"
+            : trimmedQuery !== ""
+              ? `${visibleRows.length} of ${rows.length} ${rows.length === 1 ? "agent" : "agents"}`
+              : `${rows.length} ${rows.length === 1 ? "agent" : "agents"}`;
+
     function resetControls() {
         setQuery("");
         setDebouncedQuery("");
@@ -285,7 +295,15 @@ export function PerUserTable({
     return (
         <Card>
             <CardHeader>
-                <CardTitle>Per-user report</CardTitle>
+                <div className="flex items-baseline gap-2">
+                    <CardTitle>Per-user report</CardTitle>
+                    <p
+                        className="text-xs tabular-nums text-muted-foreground"
+                        aria-live="polite"
+                    >
+                        {countLabel}
+                    </p>
+                </div>
             </CardHeader>
             <CardContent className="grid min-w-0 gap-3">
                 {isLoading ? (
@@ -319,7 +337,7 @@ export function PerUserTable({
                     </Empty>
                 ) : (
                     <>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        <div className="flex flex-wrap items-center gap-2">
                             <div className="relative w-full sm:w-56">
                                 <Search
                                     className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -348,7 +366,7 @@ export function PerUserTable({
                                 variant="ghost"
                                 size="sm"
                                 onClick={toggleAll}
-                                className="h-9 w-full sm:ml-auto sm:w-auto"
+                                className="h-9 border border-muted-foreground sm:ml-auto"
                             >
                                 {allExpanded ? "Collapse all" : "Expand all"}
                             </Button>
@@ -358,7 +376,7 @@ export function PerUserTable({
                                     variant="ghost"
                                     size="sm"
                                     onClick={resetControls}
-                                    className="h-9 w-full sm:w-auto"
+                                    className="h-9 border border-muted-foreground"
                                 >
                                     Reset
                                 </Button>
@@ -387,150 +405,164 @@ export function PerUserTable({
                                 </EmptyHeader>
                             </Empty>
                         ) : (
-                            <div className="max-w-full overflow-x-auto rounded-md border">
-                                <Table>
-                                    <TableHeader className="sticky top-0 bg-card">
-                                        <TableRow>
-                                            <TableHead>Agent</TableHead>
-                                            {SORT_COLUMNS.map(({ key, label }) => (
-                                                <TableHead
-                                                    key={key}
-                                                    aria-sort={
-                                                        sortKey === key
-                                                            ? sortDir === "desc"
-                                                                ? "descending"
-                                                                : "ascending"
-                                                            : "none"
-                                                    }
-                                                    className="text-right tabular-nums"
-                                                >
-                                                    <SortHeaderButton
-                                                        label={label}
-                                                        column={key}
-                                                        sortKey={sortKey}
-                                                        sortDir={sortDir}
-                                                        onToggle={toggleSort}
-                                                    />
-                                                </TableHead>
-                                            ))}
-                                            <TableHead className="whitespace-nowrap text-right tabular-nums">
-                                                Last activity
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {visibleRows.map((row) => {
-                                            const expanded = expandedIds.has(row.agent_id);
-                                            return (
-                                                <Fragment key={row.agent_id}>
-                                                    <TableRow
-                                                        className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-                                                        tabIndex={0}
-                                                        role="link"
-                                                        aria-label={`Open history for ${row.display_name}, ${row.agent_code}`}
-                                                        onClick={(event) => {
-                                                            if (isRowClickIgnored(event.target))
-                                                                return;
-                                                            router.push(
-                                                                `/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`,
-                                                            );
-                                                        }}
-                                                        onKeyDown={(event) => {
-                                                            if (
-                                                                event.key !== "Enter" &&
-                                                                event.key !== " "
-                                                            )
-                                                                return;
-                                                            if (isRowClickIgnored(event.target))
-                                                                return;
-                                                            event.preventDefault();
-                                                            router.push(
-                                                                `/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`,
-                                                            );
-                                                        }}
+                            <>
+                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                    <ul
+                                        aria-label="Channel colours"
+                                        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+                                    >
+                                        {KIND_META.map(({ key, label, bar }) => (
+                                            <li
+                                                key={key}
+                                                className="inline-flex items-center gap-1.5"
+                                            >
+                                                <span
+                                                    className={cn(
+                                                        "size-2 shrink-0 rounded-full",
+                                                        bar,
+                                                    )}
+                                                    aria-hidden
+                                                />
+                                                {label}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <p className="text-xs text-muted-foreground md:hidden">
+                                        Scroll sideways for more columns.
+                                    </p>
+                                </div>
+                                <div className="max-w-full overflow-x-auto rounded-md border">
+                                    <Table>
+                                        <TableHeader className="sticky top-0 bg-card">
+                                            <TableRow>
+                                                <TableHead>Agent</TableHead>
+                                                {SORT_COLUMNS.map(({ key, label }) => (
+                                                    <TableHead
+                                                        key={key}
+                                                        aria-sort={
+                                                            sortKey === key
+                                                                ? sortDir === "desc"
+                                                                    ? "descending"
+                                                                    : "ascending"
+                                                                : "none"
+                                                        }
+                                                        className="text-right tabular-nums"
                                                     >
-                                                        <TableCell className="min-w-0">
-                                                            <span className="flex items-center gap-1.5">
-                                                                <button
-                                                                    type="button"
-                                                                    data-no-row-click
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        toggleExpand(row.agent_id);
-                                                                    }}
-                                                                    aria-expanded={expanded}
-                                                                    aria-label={`${expanded ? "Collapse" : "Expand"} channel breakdown for ${row.display_name}`}
-                                                                    title={`${expanded ? "Collapse" : "Expand"} breakdown`}
-                                                                    className="rounded p-0.5 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                        <SortHeaderButton
+                                                            label={label}
+                                                            column={key}
+                                                            sortKey={sortKey}
+                                                            sortDir={sortDir}
+                                                            onToggle={toggleSort}
+                                                        />
+                                                    </TableHead>
+                                                ))}
+                                                <TableHead className="whitespace-nowrap text-right tabular-nums">
+                                                    Last activity
+                                                </TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {visibleRows.map((row) => {
+                                                const expanded = expandedIds.has(row.agent_id);
+                                                return (
+                                                    <Fragment key={row.agent_id}>
+                                                        <TableRow
+                                                            className="cursor-pointer hover:bg-muted/50"
+                                                            onClick={(event) => {
+                                                                if (isRowClickIgnored(event.target))
+                                                                    return;
+                                                                router.push(
+                                                                    `/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`,
+                                                                );
+                                                            }}
+                                                        >
+                                                            <TableCell className="min-w-0">
+                                                                <span className="flex items-center gap-1.5">
+                                                                    <button
+                                                                        type="button"
+                                                                        data-no-row-click
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            toggleExpand(row.agent_id);
+                                                                        }}
+                                                                        aria-expanded={expanded}
+                                                                        aria-controls={`breakdown-${row.agent_id}`}
+                                                                        aria-label={`${expanded ? "Collapse" : "Expand"} channel breakdown for ${row.display_name}`}
+                                                                        title={`${expanded ? "Collapse" : "Expand"} breakdown`}
+                                                                        className="rounded p-0.5 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                                    >
+                                                                        <ChevronDown
+                                                                            className={cn(
+                                                                                "size-4 shrink-0 text-muted-foreground transition-transform",
+                                                                                expanded && "rotate-180",
+                                                                            )}
+                                                                        />
+                                                                    </button>
+                                                                    <Link
+                                                                        href={`/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        title={`Open history for ${row.display_name} (${row.agent_code})`}
+                                                                        aria-label={`Open history for ${row.display_name}, ${row.agent_code}`}
+                                                                        className="block max-w-40 truncate font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 sm:max-w-56"
+                                                                    >
+                                                                        {row.display_name}
+                                                                    </Link>
+                                                                </span>
+                                                                <span className="pl-6 text-xs text-muted-foreground">
+                                                                    {row.agent_code}
+                                                                </span>
+                                                            </TableCell>
+                                                            <TableCell className="text-right tabular-nums">
+                                                                <span className="font-semibold tabular-nums">
+                                                                    {row.activities_total}
+                                                                </span>
+                                                                <span
+                                                                    className="block text-xs text-muted-foreground tabular-nums"
+                                                                    title={compactSummary(row)}
                                                                 >
-                                                                    <ChevronDown
-                                                                        className={cn(
-                                                                            "size-4 shrink-0 text-muted-foreground transition-transform",
-                                                                            expanded && "rotate-180",
-                                                                        )}
-                                                                    />
-                                                                </button>
-                                                                <Link
-                                                                    href={`/customer-activation/telemarketing/telemarketing-agent-report/${row.agent_id}`}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    title={`Open history for ${row.display_name} (${row.agent_code})`}
-                                                                    aria-label={`Open history for ${row.display_name}, ${row.agent_code}`}
-                                                                    className="block max-w-40 truncate font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 sm:max-w-56"
+                                                                    {compactSummary(row)}
+                                                                </span>
+                                                                <DistributionBar row={row} />
+                                                            </TableCell>
+                                                            <TableCell className="text-right tabular-nums">
+                                                                {row.leads_claimed}
+                                                            </TableCell>
+                                                            <TableCell className="text-right tabular-nums">
+                                                                <StatusPill
+                                                                    tone={row.conversions > 0 ? "success" : "neutral"}
                                                                 >
-                                                                    {row.display_name}
-                                                                </Link>
-                                                            </span>
-                                                            <span className="pl-6 text-xs text-muted-foreground">
-                                                                {row.agent_code}
-                                                            </span>
-                                                        </TableCell>
-                                                        <TableCell className="text-right tabular-nums">
-                                                            <span className="font-semibold tabular-nums">
-                                                                {row.activities_total}
-                                                            </span>
-                                                            <span
-                                                                className="block text-xs text-muted-foreground tabular-nums"
-                                                                title={compactSummary(row)}
-                                                            >
-                                                                {compactSummary(row)}
-                                                            </span>
-                                                            <DistributionBar row={row} />
-                                                        </TableCell>
-                                                        <TableCell className="text-right tabular-nums">
-                                                            {row.leads_claimed}
-                                                        </TableCell>
-                                                        <TableCell className="text-right tabular-nums">
-                                                            <StatusPill
-                                                                tone={row.conversions > 0 ? "success" : "neutral"}
-                                                            >
-                                                                <span className="tabular-nums">{row.conversions}</span>
-                                                            </StatusPill>
-                                                        </TableCell>
-                                                        <TableCell className="text-right text-muted-foreground tabular-nums">
-                                                            {(() => {
-                                                                const rate = convRate(row);
-                                                                return rate === null
-                                                                    ? "—"
-                                                                    : `${Math.round(rate * 100)}%`;
-                                                            })()}
-                                                        </TableCell>
-                                                        <TableCell className="whitespace-nowrap text-right text-muted-foreground tabular-nums">
-                                                            {formatDbDateTime(row.last_activity_at)}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                    {expanded ? (
-                                                        <TableRow>
+                                                                    <span className="tabular-nums">{row.conversions}</span>
+                                                                </StatusPill>
+                                                            </TableCell>
+                                                            <TableCell className="text-right text-muted-foreground tabular-nums">
+                                                                {(() => {
+                                                                    const rate = convRate(row);
+                                                                    return rate === null
+                                                                        ? "—"
+                                                                        : `${(rate * 100).toFixed(1)}%`;
+                                                                })()}
+                                                            </TableCell>
+                                                            <TableCell className="whitespace-nowrap text-right text-muted-foreground tabular-nums">
+                                                                {formatDbDateTime(row.last_activity_at)}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                        <TableRow
+                                                            id={`breakdown-${row.agent_id}`}
+                                                            hidden={!expanded}
+                                                            aria-label={`Channel breakdown for ${row.display_name}`}
+                                                        >
                                                             <TableCell colSpan={6} className="bg-muted/30">
                                                                 <BreakdownDetail row={row} />
                                                             </TableCell>
                                                         </TableRow>
-                                                    ) : null}
-                                                </Fragment>
-                                            );
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                                                    </Fragment>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </>
                         )}
                     </>
                 )}

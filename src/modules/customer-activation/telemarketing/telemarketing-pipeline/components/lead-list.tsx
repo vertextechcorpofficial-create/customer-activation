@@ -1,10 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useDebounce } from "use-debounce";
-import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Inbox, RefreshCw, Search, SearchX, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  Inbox,
+  RefreshCw,
+  Search,
+  SearchX,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -43,23 +56,109 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLeadQuery } from "../hooks/use-lead-query";
+import { fetchLeadPage } from "../providers/lead-query-provider";
 import { useStages } from "../hooks/use-stages";
 import { LEAD_SOURCES, type Stage } from "../types/pipeline.schema";
+import type { LeadSort } from "../services/lead-query-service";
+import { cn } from "@/lib/utils";
 
 const PAGE_SIZES = [10, 25, 50];
 const ALL = "all";
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
+type SortKey = "code" | "company" | "stage" | "last_activity" | "next_follow_up";
+type SortDir = "asc" | "desc";
+
+/** First click on a column lands on its useful direction: text A→Z, latest activity newest first, follow-ups soonest first. */
+const SORT_INITIAL_DIR: Record<SortKey, SortDir> = {
+  code: "asc",
+  company: "asc",
+  stage: "asc",
+  last_activity: "desc",
+  next_follow_up: "asc",
+};
+
+/** The URL and the API share one sort vocabulary: `<key>` ascending, `-<key>` descending. */
+function parseSort(raw: string | null): { key: SortKey | null; dir: SortDir } {
+  if (!raw) return { key: null, dir: "asc" };
+  const key = raw.startsWith("-") ? raw.slice(1) : raw;
+  if (!(key in SORT_INITIAL_DIR)) return { key: null, dir: "asc" };
+  return { key: key as SortKey, dir: raw.startsWith("-") ? "desc" : "asc" };
+}
+
+/** A column the API can order by — `aria-sort` carries the active state to screen readers. */
+function SortableHead({
+  label,
+  column,
+  sortKey,
+  sortDir,
+  onToggle,
+  className,
+  alignRight,
+}: {
+  label: string;
+  column: SortKey;
+  sortKey: SortKey | null;
+  sortDir: SortDir;
+  onToggle: (column: SortKey) => void;
+  className?: string;
+  alignRight?: boolean;
+}) {
+  const active = sortKey === column;
+  const Icon = active ? (sortDir === "desc" ? ArrowDown : ArrowUp) : ArrowUpDown;
+  return (
+    <TableHead
+      className={className}
+      aria-sort={active ? (sortDir === "desc" ? "descending" : "ascending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onToggle(column)}
+        aria-label={`Sort by ${label}${active ? (sortDir === "desc" ? " (descending)" : " (ascending)") : ""}`}
+        className={cn(
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          alignRight && "justify-end",
+        )}
+      >
+        {label}
+        <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
+      </button>
+    </TableHead>
+  );
+}
+
+function parseLeadDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
   const iso = value.includes("T") ? value : value.replace(" ", "T");
   const date = new Date(/[+-]\d{2}:\d{2}$|Z$/.test(iso) ? iso : `${iso}+08:00`);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("en-PH", {
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 31_536_000_000],
+  ["month", 2_592_000_000],
+  ["week", 604_800_000],
+  ["day", 86_400_000],
+  ["hour", 3_600_000],
+  ["minute", 60_000],
+];
+
+const relativeFormatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+/** Absolute timestamp first, relative age second — the same shape the board uses. */
+function formatDateTime(value: string | null | undefined, now: number): string {
+  const date = parseLeadDate(value);
+  if (!date) return "—";
+  const absolute = date.toLocaleString("en-PH", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+  const diff = date.getTime() - now;
+  for (const [unit, ms] of RELATIVE_UNITS) {
+    if (Math.abs(diff) >= ms) return `${absolute} · ${relativeFormatter.format(Math.round(diff / ms), unit)}`;
+  }
+  return `${absolute} · just now`;
 }
 
 /** Searchable stage picker backed by the `telemarketing_stage` table. */
@@ -164,15 +263,49 @@ function StageCombobox({
 /** Every lead in the pipeline, filterable by stage, source or search term. */
 export function LeadList({ initialStageId }: { initialStageId?: number }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { stages, isLoading: stagesLoading, error: stagesError } = useStages();
+  // `stage` is the key the shell already deep-links with; the rest mirror the
+  // API's own parameter names so a filtered list can be shared and reloaded.
   const [stageFilter, setStageFilter] = useState<string>(
-    initialStageId ? String(initialStageId) : ALL,
+    initialStageId ? String(initialStageId) : (searchParams.get("stage") ?? ALL),
   );
-  const [sourceFilter, setSourceFilter] = useState<string>(ALL);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  const [sourceFilter, setSourceFilter] = useState<string>(() => searchParams.get("source") ?? ALL);
+  const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+  const [page, setPage] = useState(() => {
+    const requested = Number(searchParams.get("page"));
+    return Number.isInteger(requested) && requested > 0 ? requested : 1;
+  });
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const requested = Number(searchParams.get("limit"));
+    return PAGE_SIZES.includes(requested) ? requested : PAGE_SIZES[0];
+  });
+  const [sortKey, setSortKey] = useState<SortKey | null>(
+    () => parseSort(searchParams.get("sort")).key,
+  );
+  const [sortDir, setSortDir] = useState<SortDir>(
+    () => parseSort(searchParams.get("sort")).dir,
+  );
   const [debouncedSearch] = useDebounce(search, 300);
+  // No sort means the API's own default (`-created_at`), so it never rides in the URL.
+  const sort: LeadSort | undefined =
+    sortKey === null ? undefined : ((sortDir === "desc" ? `-${sortKey}` : sortKey) as LeadSort);
+  // One clock reading per mount: relative ages follow the same convention as
+  // the board card metadata.
+  const [now] = useState(() => Date.now());
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (stageFilter !== ALL) params.set("stage", stageFilter);
+    if (sourceFilter !== ALL) params.set("source", sourceFilter);
+    if (sort) params.set("sort", sort);
+    if (page > 1) params.set("page", String(page));
+    if (pageSize !== PAGE_SIZES[0]) params.set("limit", String(pageSize));
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  }, [debouncedSearch, stageFilter, sourceFilter, sort, page, pageSize, pathname]);
 
   const stageById = useMemo(
     () => new Map(stages.map((stage) => [stage.stage_id, stage])),
@@ -183,6 +316,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
     stageId: stageFilter === ALL ? undefined : Number(stageFilter),
     source: sourceFilter === ALL ? undefined : sourceFilter,
     search: debouncedSearch.trim() || undefined,
+    sort,
     page,
     limit: pageSize,
   });
@@ -195,11 +329,71 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
 
   const isActive =
     search.trim() !== "" || stageFilter !== ALL || sourceFilter !== ALL;
+  // Sorting never empties the list, so it offers a Reset without changing the
+  // empty-state copy.
+  const isDirty = isActive || sortKey !== null;
+
+  // The header talks about the collection, not the filter, so a no-match
+  // search reads "0 of 16 leads" instead of claiming the list is empty.
+  const [collectionTotal, setCollectionTotal] = useState(0);
+  const [totalFailed, setTotalFailed] = useState(false);
+  const requestedTotal = useRef(false);
+  const rememberTotal = () => {
+    if (!isActive) setCollectionTotal(meta.total);
+  };
+  // Never print a count that is not known yet: "—" while the first response
+  // (or the deep-link total) is in flight, and a plain count if the extra
+  // request fails — a bare "0 leads" reads as an empty pipeline.
+  const totalUnknown = (isLoading && meta.total === 0) || (isActive && collectionTotal === 0 && !totalFailed);
+  const noun = meta.total === 1 ? "lead" : "leads";
+  const countLabel = error || totalUnknown
+    ? "—"
+    : isActive && collectionTotal > 0
+      ? `${meta.total} of ${collectionTotal} ${collectionTotal === 1 ? "lead" : "leads"}`
+      : `${meta.total} ${noun}`;
+
+  // A deep link can arrive already filtered, so no unfiltered response was ever
+  // seen — ask the API for the collection total once rather than showing a bare "0".
+  useEffect(() => {
+    if (requestedTotal.current || collectionTotal > 0 || !isActive) return;
+    requestedTotal.current = true;
+    let cancelled = false;
+    void fetchLeadPage({ page: 1, limit: 1 })
+      .then((result) => {
+        if (!cancelled) setCollectionTotal(result.meta.total);
+      })
+      .catch(() => {
+        requestedTotal.current = false;
+        if (!cancelled) setTotalFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [collectionTotal, isActive]);
+
+  // A column that is empty on every row of the page costs width and carries no
+  // information, so it only appears when the page actually has follow-ups.
+  const showFollowUp = items.some((lead) => Boolean(lead.next_follow_up_at));
+
+  const toggleSort = (column: SortKey) => {
+    if (sortKey !== column) {
+      setSortKey(column);
+      setSortDir(SORT_INITIAL_DIR[column]);
+    } else if (sortDir === SORT_INITIAL_DIR[column]) {
+      setSortDir(SORT_INITIAL_DIR[column] === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(null);
+      setSortDir("asc");
+    }
+    setPage(1);
+  };
 
   const resetFilters = () => {
     setStageFilter(ALL);
     setSourceFilter(ALL);
     setSearch("");
+    setSortKey(null);
+    setSortDir("asc");
     setPage(1);
   };
 
@@ -208,7 +402,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold tracking-tight">Leads</h1>
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          {error ? "—" : `${meta.total} ${meta.total === 1 ? "lead" : "leads"}`}
+          {countLabel}
         </p>
       </div>
 
@@ -224,10 +418,11 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                 id="lead-search"
                 value={search}
                 onChange={(event) => {
+                  rememberTotal();
                   setSearch(event.target.value);
                   setPage(1);
                 }}
-                placeholder="Company, contact, code, email or mobile"
+                placeholder="Search leads…"
                 aria-label="Search by company, contact, code, email or mobile"
                 className="h-9 pr-8 pl-8"
               />
@@ -239,7 +434,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                     setPage(1);
                   }}
                   aria-label="Clear search"
-                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -250,6 +445,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
               stages={stages}
               disabled={stagesLoading}
               onValueChange={(value) => {
+                rememberTotal();
                 setStageFilter(value);
                 setPage(1);
               }}
@@ -257,6 +453,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
             <Select
               value={sourceFilter}
               onValueChange={(value) => {
+                rememberTotal();
                 setSourceFilter(value);
                 setPage(1);
               }}
@@ -277,7 +474,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                 ))}
               </SelectContent>
             </Select>
-            {isActive ? (
+            {isDirty ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -358,7 +555,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                           title={lead.company_name}
                         >
                           {lead.company_name}
-                        </span>
+                        </span>{" "}
                         <span
                           className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
                           title={lead.lead_code}
@@ -378,11 +575,11 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                         </StatusPill>
                       </div>
                       <p
-                        className="truncate text-xs text-muted-foreground tabular-nums"
+                        className="line-clamp-2 text-xs text-muted-foreground tabular-nums"
                         title={`Next follow-up: ${lead.next_follow_up_at ?? "—"} · Last activity: ${lead.last_activity_at ?? "—"}`}
                       >
-                        Next {formatDateTime(lead.next_follow_up_at)} · Updated{" "}
-                        {formatDateTime(lead.last_activity_at)}
+                        {showFollowUp ? `Next follow-up ${formatDateTime(lead.next_follow_up_at, now)} · ` : null}
+                        Last activity {formatDateTime(lead.last_activity_at, now)}
                       </p>
                     </li>
                   );
@@ -393,17 +590,52 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                 <table className="w-full caption-bottom text-sm min-w-[720px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-28">Code</TableHead>
-                      <TableHead className="max-w-56">Company</TableHead>
+                      <SortableHead
+                        label="Code"
+                        column="code"
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        onToggle={toggleSort}
+                        className="w-28"
+                      />
+                      <SortableHead
+                        label="Company"
+                        column="company"
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        onToggle={toggleSort}
+                        className="max-w-56"
+                      />
                       <TableHead className="max-w-48">Contact</TableHead>
                       <TableHead className="w-32">Source</TableHead>
-                      <TableHead className="w-36">Stage</TableHead>
-                      <TableHead className="w-40 text-right tabular-nums">
-                        Next follow-up
-                      </TableHead>
-                      <TableHead className="w-40 text-right tabular-nums">
-                        Last activity
-                      </TableHead>
+                      <SortableHead
+                        label="Stage"
+                        column="stage"
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        onToggle={toggleSort}
+                        className="w-36"
+                      />
+                      {showFollowUp ? (
+                        <SortableHead
+                          label="Next follow-up"
+                          column="next_follow_up"
+                          sortKey={sortKey}
+                          sortDir={sortDir}
+                          onToggle={toggleSort}
+                          className="w-40 text-right tabular-nums"
+                          alignRight
+                        />
+                      ) : null}
+                      <SortableHead
+                        label="Last activity"
+                        column="last_activity"
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        onToggle={toggleSort}
+                        className="w-40 text-right tabular-nums"
+                        alignRight
+                      />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -413,10 +645,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                       return (
                         <TableRow
                           key={lead.lead_id}
-                          tabIndex={0}
-                          role="link"
-                          aria-label={`Open lead ${lead.lead_code} ${lead.company_name}`}
-                          className="cursor-pointer hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+                          className="cursor-pointer"
                           onClick={(event) => {
                             if (
                               (event.target as HTMLElement).closest(
@@ -426,17 +655,6 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                               return;
                             router.push(leadHref);
                           }}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            if (
-                              (event.target as HTMLElement).closest(
-                                "a,button,input,select,textarea,[role='menuitem'],[role='menu'],[role='dialog'],[data-no-row-click]",
-                              )
-                            )
-                              return;
-                            event.preventDefault();
-                            router.push(leadHref);
-                          }}
                         >
                           <TableCell className="font-mono text-xs tabular-nums">
                             {lead.lead_code}
@@ -444,7 +662,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                           <TableCell className="max-w-56">
                             <Link
                               href={`/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`}
-                              className="block truncate font-medium hover:underline"
+                              className="block truncate rounded-sm font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                               title={lead.company_name}
                             >
                               {lead.company_name}
@@ -456,7 +674,7 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                               title={lead.contact_name ?? undefined}
                             >
                               {lead.contact_name || "—"}
-                            </span>
+                            </span>{" "}
                             <span
                               className="block truncate text-xs text-muted-foreground"
                               title={lead.mobile ?? lead.email ?? undefined}
@@ -482,17 +700,19 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                               </StatusPill>
                             </span>
                           </TableCell>
-                          <TableCell
-                            className="text-right tabular-nums"
-                            title={lead.next_follow_up_at ?? "No follow-up scheduled"}
-                          >
-                            {formatDateTime(lead.next_follow_up_at)}
-                          </TableCell>
+                          {showFollowUp ? (
+                            <TableCell
+                              className="text-right tabular-nums"
+                              title={lead.next_follow_up_at ?? "No follow-up scheduled"}
+                            >
+                              {formatDateTime(lead.next_follow_up_at, now)}
+                            </TableCell>
+                          ) : null}
                           <TableCell
                             className="text-right tabular-nums"
                             title={lead.last_activity_at ?? "No activity yet"}
                           >
-                            {formatDateTime(lead.last_activity_at)}
+                            {formatDateTime(lead.last_activity_at, now)}
                           </TableCell>
                         </TableRow>
                       );
@@ -501,11 +721,11 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                 </table>
               </div>
 
-              {pageCount > 1 ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-muted-foreground" aria-live="polite">
-                    {from}–{to} of {meta.total}
-                  </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  {from}–{to} of {meta.total}
+                </p>
+                {pageCount > 1 ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <label
                       htmlFor="lead-page-size"
@@ -561,8 +781,8 @@ export function LeadList({ initialStageId }: { initialStageId?: number }) {
                       <ChevronRight className="size-4" aria-hidden />
                     </Button>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </>
           )}
         </CardContent>

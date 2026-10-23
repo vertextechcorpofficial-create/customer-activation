@@ -12,7 +12,7 @@ import { usePerUserReport } from "./hooks/use-per-user-report";
 import { PERIOD_OPTIONS, type ReportPeriod } from "./types/report.schema";
 
 export function PerUserReportModule() {
-    const { rows, period, setPeriod, isLoading, error, refresh } = usePerUserReport("mtd");
+    const { rows, period, setPeriod, isLoading, error, refresh } = usePerUserReport("last_30");
 
     return (
         <div className="flex min-w-0 flex-col gap-4">

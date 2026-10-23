@@ -273,7 +273,6 @@ export async function listPipelineHealth(input: PipelineHealthInput): Promise<Pi
     stage_order: stage.stage_order,
     isTerminal: toFlag(stage.is_won) || toFlag(stage.is_lost),
     leadCount: count,
-    share: total === 0 ? 0 : round1((count / total) * 100),
     avgDaysInStage: ages.length === 0 ? 0 : round1(sum / ages.length),
     oldestAgeDays: ages.length === 0 ? 0 : round1(Math.max(...ages)),
   }));

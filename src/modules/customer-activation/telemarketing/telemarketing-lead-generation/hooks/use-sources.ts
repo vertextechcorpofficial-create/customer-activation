@@ -44,6 +44,32 @@ export function useClients() {
 }
 
 /**
+ * In-flight requests by query signature. A mount can run twice (React
+ * remounts effects), so the second subscription joins the first request
+ * instead of aborting it and paying for an identical round trip.
+ */
+const inflight = new Map<string, Promise<SourceResult>>();
+
+function loadSource(
+    kind: ClientSourceKind,
+    dealerId: number,
+    params: { search: string; page: number; limit: number },
+): Promise<SourceResult> {
+    const key = `${kind}|${dealerId}|${params.search}|${params.page}|${params.limit}`;
+    const existing = inflight.get(key);
+    if (existing) return existing;
+    const request = (
+        kind === "customer"
+            ? fetchCustomerSource(dealerId, params)
+            : fetchProspectingSource(dealerId, params)
+    ).finally(() => {
+        if (inflight.get(key) === request) inflight.delete(key);
+    });
+    inflight.set(key, request);
+    return request;
+}
+
+/**
  * One client-scoped source table. `dealerId` is the numeric registry id —
  * pass null before a client is picked and nothing fetches. The caller
  * debounces `search`; every change here is already a settled query. Rows are
@@ -61,7 +87,6 @@ export function useClientSource(
     const [isLoading, setIsLoading] = useState(dealerId !== null);
     const [error, setError] = useState<string | null>(null);
     const requestId = useRef(0);
-    const pendingCancel = useRef<(() => void) | null>(null);
 
     const refresh = useCallback(async (): Promise<void> => {
         if (dealerId === null) {
@@ -70,33 +95,24 @@ export function useClientSource(
             return;
         }
         const id = (requestId.current += 1);
-        pendingCancel.current?.();
-        const controller = new AbortController();
-        const signal = controller.signal;
-        pendingCancel.current = () => controller.abort();
         setIsLoading(true);
         setError(null);
         try {
-            const params = { search, page, limit: pageSize };
-            const next =
-                kind === "customer"
-                    ? await fetchCustomerSource(dealerId, params, signal)
-                    : await fetchProspectingSource(dealerId, params, signal);
-            if (requestId.current !== id || signal.aborted) return;
+            const next = await loadSource(kind, dealerId, { search, page, limit: pageSize });
+            if (requestId.current !== id) return;
             setResult(next);
         } catch (err) {
-            if (isAbort(err) || requestId.current !== id) return;
+            if (requestId.current !== id) return;
             const message = toMessage(err);
             setError(message);
             toast.error("Failed to load sources", { description: message });
         } finally {
-            if (requestId.current === id && !signal.aborted) setIsLoading(false);
+            if (requestId.current === id) setIsLoading(false);
         }
     }, [kind, dealerId, search, page, pageSize]);
 
     useEffect(() => {
         void refresh();
-        return () => pendingCancel.current?.();
     }, [refresh]);
 
     return { result, isLoading, error, refresh };

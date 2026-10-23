@@ -38,8 +38,14 @@ export interface LeaderboardTableProps {
 
 const FORMULA_CAPTION = "Score = conversions × 3 + qualified × 2 + activities × 1.";
 
-function panelId(agentId: number): string {
-  return `leaderboard-detail-${agentId}`;
+type Surface = "podium" | "table" | "card";
+
+/**
+ * The table and the card list are both mounted (one is md:hidden), so the
+ * panel id is scoped per surface — an unsuffixed id would appear twice.
+ */
+function panelId(agentId: number, surface: Surface): string {
+  return `leaderboard-detail-${agentId}-${surface}`;
 }
 
 /** Row clicks must ignore interactive elements and portalled menus. */
@@ -103,7 +109,9 @@ function BadgeRow({ row, className }: { row: LeaderboardRow; className?: string 
   return (
     <span className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <RankDeltaBadge row={row} />
-      <MomentumBadge row={row} />
+      {/* No previous rank means no previous score, so momentum would only
+          repeat the NEW pill. */}
+      {row.previous_rank === null ? null : <MomentumBadge row={row} />}
       <StreakBadge days={row.streak_days} />
     </span>
   );
@@ -126,32 +134,20 @@ function PodiumCard({
 }) {
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={expanded}
-      aria-controls={panelId(row.agent_id)}
-      aria-label={`${row.display_name}, rank ${row.rank}, score ${row.score}. Activate to ${expanded ? "hide" : "show"} details.`}
       onClick={(event) => {
         if (isRowClickIgnored(event.target)) return;
         onToggle();
       }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          if (isRowClickIgnored(event.target)) return;
-          event.preventDefault();
-          onToggle();
-        }
-      }}
       className={cn(
-        "flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border bg-card px-4 py-4 text-center transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transform-none motion-reduce:hover:shadow-none",
+        "flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border bg-card px-4 py-4 text-center transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md motion-reduce:transform-none motion-reduce:hover:shadow-none",
         featured
           ? "border-warning/40 bg-warning/5 py-8 ring-1 ring-warning/30"
           : place === 3
             ? "border-warning/25"
             : "border-muted-foreground/30",
-        place === 1 && "order-1 sm:order-2",
-        place === 2 && "order-2 sm:order-1",
-        place === 3 && "order-3",
+        place === 1 && "sm:order-2",
+        place === 2 && "sm:order-1",
+        place === 3 && "sm:order-3",
       )}
     >
       {featured ? (
@@ -186,24 +182,36 @@ function PodiumCard({
           score={row.score}
           maxScore={maxScore}
           barClass={featured ? "bg-warning" : "bg-muted-foreground/60"}
-          label={`Score ${row.score} of top ${maxScore}`}
+          label={`Score ${row.score}, highest on the board is ${maxScore}`}
         />
       </span>
-      <ChevronDown
-        className={cn(
-          "size-4 shrink-0 text-muted-foreground transition-transform",
-          expanded && "rotate-180",
-        )}
-        aria-hidden
-      />
+      <button
+        type="button"
+        data-no-row-click
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        aria-expanded={expanded}
+        aria-controls={panelId(row.agent_id, "podium")}
+        aria-label={`${expanded ? "Hide" : "Show"} details for ${row.display_name}`}
+        className="rounded p-0.5 focus-visible:outline-2 focus-visible:outline-offset-2"
+      >
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            expanded && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
       {expanded ? (
         <span
           data-no-row-click
           className="mt-1 w-full text-left"
           onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
         >
-          <AgentDetail row={row} id={panelId(row.agent_id)} />
+          <AgentDetail row={row} id={panelId(row.agent_id, "podium")} />
         </span>
       ) : null}
     </div>
@@ -222,42 +230,24 @@ function Podium({
   onToggle: (agentId: number) => void;
 }) {
   const top = rows.slice(0, 3);
-  const first = top.find((row) => row.rank === 1);
-  const second = top.find((row) => row.rank === 2);
-  const third = top.find((row) => row.rank === 3);
   return (
-    <section
-      aria-label="Top performers"
-      className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3 sm:items-stretch"
-    >
-      {second ? (
-        <PodiumCard
-          row={second}
-          place={2}
-          maxScore={maxScore}
-          expanded={expandedIds.has(second.agent_id)}
-          onToggle={() => onToggle(second.agent_id)}
-        />
-      ) : null}
-      {first ? (
-        <PodiumCard
-          row={first}
-          place={1}
-          featured
-          maxScore={maxScore}
-          expanded={expandedIds.has(first.agent_id)}
-          onToggle={() => onToggle(first.agent_id)}
-        />
-      ) : null}
-      {third ? (
-        <PodiumCard
-          row={third}
-          place={3}
-          maxScore={maxScore}
-          expanded={expandedIds.has(third.agent_id)}
-          onToggle={() => onToggle(third.agent_id)}
-        />
-      ) : null}
+    <section aria-labelledby="leaderboard-podium-heading" className="min-w-0">
+      <h2 id="leaderboard-podium-heading" className="sr-only">
+        Top performers
+      </h2>
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3 sm:items-stretch">
+        {top.map((row, index) => (
+          <PodiumCard
+            key={row.agent_id}
+            row={row}
+            place={(index + 1) as 1 | 2 | 3}
+            featured={index === 0}
+            maxScore={maxScore}
+            expanded={expandedIds.has(row.agent_id)}
+            onToggle={() => onToggle(row.agent_id)}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -274,7 +264,13 @@ function RankedTable({
   onToggle: (agentId: number) => void;
 }) {
   return (
-    <div className="hidden overflow-x-auto md:block">
+    <section
+      aria-labelledby="leaderboard-ranked-heading"
+      className="hidden overflow-x-auto md:block"
+    >
+      <h2 id="leaderboard-ranked-heading" className="sr-only">
+        Ranked agents
+      </h2>
       <Table>
         <TableCaption className="px-4 pb-3 text-left">
           {FORMULA_CAPTION}
@@ -286,7 +282,9 @@ function RankedTable({
             <TableHead className="w-44">Score</TableHead>
             <TableHead>Movement</TableHead>
             <TableHead>Momentum</TableHead>
-            <TableHead>Streak</TableHead>
+            <TableHead title="Consecutive days with recorded activity">
+              Streak
+            </TableHead>
             <TableHead className="w-10">
               <span className="sr-only">Details</span>
             </TableHead>
@@ -300,23 +298,12 @@ function RankedTable({
                 key={row.agent_id}
                 layout
                 transition={{ type: "spring", stiffness: 350, damping: 32 }}
-                tabIndex={0}
-                role="button"
-                aria-expanded={expanded}
-                aria-controls={panelId(row.agent_id)}
-                aria-label={`${row.display_name}, rank ${row.rank}, score ${row.score}. Activate to ${expanded ? "hide" : "show"} details.`}
                 onClick={(event) => {
                   if (isRowClickIgnored(event.target)) return;
                   onToggle(row.agent_id);
                 }}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  if (isRowClickIgnored(event.target)) return;
-                  event.preventDefault();
-                  onToggle(row.agent_id);
-                }}
                 className={cn(
-                  "cursor-pointer border-b transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2",
+                  "cursor-pointer border-b transition-colors hover:bg-muted/50",
                   expanded && "bg-muted/30",
                 )}
               >
@@ -343,7 +330,7 @@ function RankedTable({
                       score={row.score}
                       maxScore={maxScore}
                       barClass="bg-primary"
-                      label={`Score ${row.score} of top ${maxScore}`}
+                      label={`Score ${row.score}, highest on the board is ${maxScore}`}
                     />
                   </span>
                 </td>
@@ -351,10 +338,24 @@ function RankedTable({
                   <RankDeltaBadge row={row} />
                 </td>
                 <td className="p-2 align-middle">
-                  <MomentumBadge row={row} />
+                  {row.previous_rank === null ? (
+                    <span className="text-xs text-muted-foreground">
+                      <span aria-hidden>—</span>
+                      <span className="sr-only">no previous period</span>
+                    </span>
+                  ) : (
+                    <MomentumBadge row={row} />
+                  )}
                 </td>
                 <td className="p-2 align-middle">
-                  <StreakBadge days={row.streak_days} />
+                  {row.streak_days > 0 ? (
+                    <StreakBadge days={row.streak_days} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      <span aria-hidden>—</span>
+                      <span className="sr-only">no active streak</span>
+                    </span>
+                  )}
                 </td>
                 <td className="p-2 align-middle">
                   <button
@@ -365,7 +366,7 @@ function RankedTable({
                       onToggle(row.agent_id);
                     }}
                     aria-expanded={expanded}
-                    aria-controls={panelId(row.agent_id)}
+                    aria-controls={panelId(row.agent_id, "table")}
                     aria-label={`${expanded ? "Hide" : "Show"} details for ${row.display_name}`}
                     className="rounded p-0.5 focus-visible:outline-2 focus-visible:outline-offset-2"
                   >
@@ -382,7 +383,7 @@ function RankedTable({
               expanded ? (
                 <tr key={`${row.agent_id}-detail`} className="border-b">
                   <td colSpan={7} className="bg-muted/30 p-3">
-                    <AgentDetail row={row} id={panelId(row.agent_id)} />
+                    <AgentDetail row={row} id={panelId(row.agent_id, "table")} />
                   </td>
                 </tr>
               ) : null,
@@ -390,7 +391,7 @@ function RankedTable({
           })}
         </TableBody>
       </Table>
-    </div>
+    </section>
   );
 }
 
@@ -406,7 +407,13 @@ function RankedCards({
   onToggle: (agentId: number) => void;
 }) {
   return (
-    <div className="grid min-w-0 gap-2 md:hidden">
+    <section
+      aria-labelledby="leaderboard-ranked-cards-heading"
+      className="grid min-w-0 gap-2 md:hidden"
+    >
+      <h2 id="leaderboard-ranked-cards-heading" className="sr-only">
+        Ranked agents
+      </h2>
       {rows.map((row) => {
         const expanded = expandedIds.has(row.agent_id);
         return (
@@ -423,7 +430,7 @@ function RankedCards({
               type="button"
               onClick={() => onToggle(row.agent_id)}
               aria-expanded={expanded}
-              aria-controls={panelId(row.agent_id)}
+              aria-controls={panelId(row.agent_id, "card")}
               aria-label={`${row.display_name}, rank ${row.rank}, score ${row.score}. ${expanded ? "Hide" : "Show"} details.`}
               className="grid w-full min-w-0 gap-2 p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2"
             >
@@ -458,21 +465,21 @@ function RankedCards({
                   score={row.score}
                   maxScore={maxScore}
                   barClass="bg-primary"
-                  label={`Score ${row.score} of top ${maxScore}`}
+                  label={`Score ${row.score}, highest on the board is ${maxScore}`}
                 />
               </span>
               <BadgeRow row={row} />
             </button>
             {expanded ? (
               <div className="border-t border-border px-3 py-3">
-                <AgentDetail row={row} id={panelId(row.agent_id)} />
+                <AgentDetail row={row} id={panelId(row.agent_id, "card")} />
               </div>
             ) : null}
           </motion.div>
         );
       })}
       <p className="px-1 text-xs text-muted-foreground">{FORMULA_CAPTION}</p>
-    </div>
+    </section>
   );
 }
 
@@ -580,14 +587,29 @@ export function LeaderboardTable({
   }
 
   const maxScore = Math.max(...rows.map((row) => row.score), 1);
-  const rest = rows.filter((row) => row.rank > 3);
+  // Competition ranking (1, 1, 3): equal scores share a rank so the board never
+  // implies a difference the data does not contain. Ordering stays the
+  // service's; this only collapses equals into one display rank.
+  let displayRank = 0;
+  const ranked = rows.map((row, index) => {
+    if (index === 0 || row.score !== rows[index - 1].score) displayRank = index + 1;
+    return {
+      ...row,
+      rank: displayRank,
+      rank_delta:
+        row.previous_rank === null ? 0 : row.previous_rank - displayRank,
+    };
+  });
+  // Slice by position, never by rank value: a tie on the podium (1, 1, 3) would
+  // otherwise drop the second and third agents from the page entirely.
+  const rest = ranked.slice(3);
 
   return (
     <div className="min-w-0" aria-busy={isLoading}>
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="min-w-0 p-4">
           <Podium
-            rows={rows}
+            rows={ranked}
             maxScore={maxScore}
             expandedIds={expandedIds}
             onToggle={toggleExpand}

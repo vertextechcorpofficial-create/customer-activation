@@ -170,6 +170,7 @@ export function CreateLeadDialog({
                             }}
                             placeholder="Acme Trading"
                             maxLength={191}
+                            required
                             aria-invalid={Boolean(fieldErrors.company)}
                             aria-describedby={fieldErrors.company ? "lg-company-error" : undefined}
                         />
@@ -203,9 +204,7 @@ export function CreateLeadDialog({
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="grid gap-1.5">
-                            <Label htmlFor="lg-mobile">
-                                Mobile <span className="text-destructive">*</span>
-                            </Label>
+                            <Label htmlFor="lg-mobile">Mobile</Label>
                             <Input
                                 id="lg-mobile"
                                 value={mobile}
@@ -216,13 +215,13 @@ export function CreateLeadDialog({
                                 placeholder="0917…"
                                 maxLength={32}
                                 aria-invalid={Boolean(fieldErrors.contact)}
-                                aria-describedby={fieldErrors.contact ? "lg-contact-error" : undefined}
+                                aria-describedby={
+                                    fieldErrors.contact ? "lg-contact-hint lg-contact-error" : "lg-contact-hint"
+                                }
                             />
                         </div>
                         <div className="grid gap-1.5">
-                            <Label htmlFor="lg-email">
-                                Email <span className="text-destructive">*</span>
-                            </Label>
+                            <Label htmlFor="lg-email">Email</Label>
                             <Input
                                 id="lg-email"
                                 type="email"
@@ -234,11 +233,15 @@ export function CreateLeadDialog({
                                 placeholder="jane@example.com"
                                 maxLength={191}
                                 aria-invalid={Boolean(fieldErrors.contact)}
-                                aria-describedby={fieldErrors.contact ? "lg-contact-error" : undefined}
+                                aria-describedby={
+                                    fieldErrors.contact ? "lg-contact-hint lg-contact-error" : "lg-contact-hint"
+                                }
                             />
                         </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">Mobile or email required</p>
+                    <p id="lg-contact-hint" className="text-xs text-muted-foreground">
+                        Mobile or email required
+                    </p>
                     {fieldErrors.contact ? (
                         <p id="lg-contact-error" role="alert" className="text-xs text-destructive">
                             {fieldErrors.contact}

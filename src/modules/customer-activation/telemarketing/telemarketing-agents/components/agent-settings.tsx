@@ -13,6 +13,7 @@ import {
     PowerOff,
     RefreshCw,
     Search,
+    SearchX,
     UserPlus,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -58,6 +59,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContentInDialog, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
+import { Switch } from "@/components/ui/switch";
 import {
     Table,
     TableBody,
@@ -138,11 +140,12 @@ function AgentActions({
 interface FormState {
     display_name: string;
     daily_call_target: string;
+    is_active: boolean;
 }
 
 type FormErrors = Partial<Record<"user_id" | keyof FormState, string>>;
 
-const EMPTY_FORM: FormState = { display_name: "", daily_call_target: "" };
+const EMPTY_FORM: FormState = { display_name: "", daily_call_target: "", is_active: true };
 
 function UserCombobox({
     value,
@@ -218,7 +221,12 @@ function UserCombobox({
                     </Command>
                 </PopoverContentInDialog>
             </Popover>
-            {error && <p className="text-xs text-destructive">{error}</p>}
+            {error && (
+                <p className="flex items-start gap-1 text-xs text-foreground">
+                    <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+                    {error}
+                </p>
+            )}
             <p className="text-xs text-muted-foreground">
                 Registration links an existing user — it never creates one.
             </p>
@@ -245,6 +253,16 @@ export function AgentSettings() {
     const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const to = Math.min(page * PAGE_SIZE, total);
 
+    // The header talks about the collection, not the filter, so a no-match
+    // search reads "0 of 4 agents" instead of claiming the list is empty.
+    const [collectionTotal, setCollectionTotal] = useState(0);
+    const isFiltered = search.trim() !== "";
+    const countLabel = error
+        ? "—"
+        : isFiltered
+          ? `${total} of ${collectionTotal} ${collectionTotal === 1 ? "agent" : "agents"}`
+          : `${total} ${total === 1 ? "agent" : "agents"}`;
+
     const openCreate = () => {
         setForm({ ...EMPTY_FORM });
         setErrors({});
@@ -256,6 +274,7 @@ export function AgentSettings() {
         setForm({
             display_name: agent.display_name,
             daily_call_target: agent.daily_call_target == null ? "" : String(agent.daily_call_target),
+            is_active: flagOn(agent.is_active),
         });
         setErrors({});
         setDialog({ mode: "edit", agent });
@@ -293,6 +312,7 @@ export function AgentSettings() {
                 : await updateAgent(dialog.agent.agent_id, {
                     display_name: form.display_name.trim(),
                     daily_call_target: target === "" ? null : Number(target),
+                    is_active: form.is_active,
                 });
         setSubmitting(false);
         if (ok) setDialog(null);
@@ -311,7 +331,12 @@ export function AgentSettings() {
         <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agents</h1>
+                    <div className="flex items-baseline gap-2">
+                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Agents</h1>
+                        <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                            {countLabel}
+                        </p>
+                    </div>
                     <p className="text-sm text-muted-foreground">
                         Register existing users as telemarketing agents. Users themselves are never created here.
                     </p>
@@ -330,7 +355,11 @@ export function AgentSettings() {
                 <Input
                     value={search}
                     onChange={(event) => {
-                        setSearch(event.target.value);
+                        const value = event.target.value;
+                        // Remember the unfiltered total as the filter first hides the list,
+                        // so the header can say "0 of 4 agents" instead of "0 agents".
+                        if (search.trim() === "" && value.trim() !== "") setCollectionTotal(total);
+                        setSearch(value);
                         setPage(1);
                     }}
                     placeholder="Search agents..."
@@ -363,23 +392,48 @@ export function AgentSettings() {
                         </div>
                     ) : agents.length === 0 ? (
                         <div className="p-6">
-                            <Empty>
-                                <EmptyHeader>
-                                    <EmptyMedia variant="icon">
-                                        <UserPlus />
-                                    </EmptyMedia>
-                                    <EmptyTitle>No agents yet</EmptyTitle>
-                                    <EmptyDescription>
-                                        Register an existing user to start assigning telemarketing work.
-                                    </EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button onClick={openCreate} className="min-h-11 md:min-h-0">
-                                        <Plus className="size-4" />
-                                        Register agent
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
+                            {search.trim() !== "" ? (
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <SearchX />
+                                        </EmptyMedia>
+                                        <EmptyTitle>No agents match “{search.trim()}”</EmptyTitle>
+                                        <EmptyDescription>
+                                            Check the spelling, or clear the search to see every agent.
+                                        </EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setSearch("");
+                                                setPage(1);
+                                            }}
+                                        >
+                                            Clear search
+                                        </Button>
+                                    </EmptyContent>
+                                </Empty>
+                            ) : (
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <UserPlus />
+                                        </EmptyMedia>
+                                        <EmptyTitle>No agents yet</EmptyTitle>
+                                        <EmptyDescription>
+                                            Register an existing user to start assigning telemarketing work.
+                                        </EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button onClick={openCreate} className="min-h-11 md:min-h-0">
+                                            <Plus className="size-4" />
+                                            Register agent
+                                        </Button>
+                                    </EmptyContent>
+                                </Empty>
+                            )}
                         </div>
                     ) : (
                         <>
@@ -401,28 +455,26 @@ export function AgentSettings() {
                                             event.preventDefault();
                                             openEdit(agent);
                                         }}
-                                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
                                     >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="truncate font-medium" title={agent.display_name}>
-                                                    {agent.display_name}
+                                        <div className="min-w-0">
+                                            <p className="truncate font-medium" title={agent.display_name}>
+                                                {agent.display_name}
+                                            </p>
+                                            <p className="truncate font-mono text-xs text-muted-foreground" title={agent.agent_code}>
+                                                {agent.agent_code}
+                                            </p>
+                                            {agent.user_email && (
+                                                <p className="truncate text-xs text-muted-foreground" title={agent.user_email}>
+                                                    {agent.user_email}
                                                 </p>
-                                                <p className="truncate font-mono text-xs text-muted-foreground" title={agent.agent_code}>
-                                                    {agent.agent_code}
-                                                </p>
-                                                {agent.user_email && (
-                                                    <p className="truncate text-xs text-muted-foreground" title={agent.user_email}>
-                                                        {agent.user_email}
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <AgentStatus agent={agent} />
-                                        </div>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs text-muted-foreground tabular-nums">
+                                            )}
+                                            <p className="text-xs text-muted-foreground tabular-nums">
                                                 Target {agent.daily_call_target ?? "—"}
-                                            </span>
+                                            </p>
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                            <AgentStatus agent={agent} />
                                             <AgentActions
                                                 agent={agent}
                                                 onEdit={openEdit}
@@ -505,13 +557,11 @@ export function AgentSettings() {
                                 </Table>
                             </div>
 
-                            <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-xs text-muted-foreground tabular-nums">
-                                    {total === 0
-                                        ? "0 agents"
-                                        : `Showing ${from}–${to} of ${total}`}
-                                </p>
-                                {pageCount > 1 && (
+                            {pageCount > 1 && (
+                                <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-xs text-muted-foreground tabular-nums">
+                                        {from}–{to} of {total}
+                                    </p>
                                     <div className="flex items-center gap-2">
                                         <Button
                                             variant="outline"
@@ -537,8 +587,8 @@ export function AgentSettings() {
                                             <ChevronRight className="size-4" />
                                         </Button>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </>
                     )}
                 </CardContent>
@@ -552,7 +602,7 @@ export function AgentSettings() {
                         </DialogTitle>
                         <DialogDescription>
                             {dialog?.mode === "edit"
-                                ? "Change the display name or daily call target."
+                                ? "Change the display name, daily call target or whether the agent is active."
                                 : "Link an existing user as a telemarketing agent."}
                         </DialogDescription>
                     </DialogHeader>
@@ -589,7 +639,11 @@ export function AgentSettings() {
                                     aria-describedby={errors.display_name ? "agent-name-error" : undefined}
                                 />
                                 {errors.display_name && (
-                                    <p id="agent-name-error" className="text-xs text-destructive">
+                                    <p
+                                        id="agent-name-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.display_name}
                                     </p>
                                 )}
@@ -606,11 +660,31 @@ export function AgentSettings() {
                                     aria-describedby={errors.daily_call_target ? "agent-target-error" : undefined}
                                 />
                                 {errors.daily_call_target && (
-                                    <p id="agent-target-error" className="text-xs text-destructive">
+                                    <p
+                                        id="agent-target-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.daily_call_target}
                                     </p>
                                 )}
                             </div>
+                            {dialog?.mode === "edit" && (
+                                <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                                    <div className="grid gap-0.5">
+                                        <Label htmlFor="agent-active">Active</Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Inactive agents stop receiving new work. Past leads and
+                                            activities stay linked.
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id="agent-active"
+                                        checked={form.is_active}
+                                        onCheckedChange={(checked) => setField("is_active", checked)}
+                                    />
+                                </div>
+                            )}
                         </div>
                         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
                             <DialogClose asChild>
@@ -636,7 +710,7 @@ export function AgentSettings() {
                         <AlertDialogTitle>Deactivate agent?</AlertDialogTitle>
                         <AlertDialogDescription>
                             {confirmDeactivate
-                                ? `"${confirmDeactivate.display_name}" stops receiving new work. Past leads and activities stay linked.`
+                                ? `"${confirmDeactivate.display_name}" stops receiving new work. Past leads and activities stay linked. You can turn the agent back on from Edit.`
                                 : ""}
                         </AlertDialogDescription>
                     </AlertDialogHeader>

@@ -127,7 +127,13 @@ function ClientCombobox({
         : "Select client…";
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                setOpen(next);
+                if (!next) setQuery("");
+            }}
+        >
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
@@ -144,7 +150,7 @@ function ClientCombobox({
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command shouldFilter={false}>
+                <Command shouldFilter={false} label="Search clients">
                     <CommandInput
                         placeholder="Search clients…"
                         value={query}
@@ -384,7 +390,8 @@ function SourceTable({
                         >
                             <button
                                 type="button"
-                                aria-label={`Create lead for ${row.name}`}
+                                aria-hidden
+                                tabIndex={-1}
                                 onClick={() => onCreate(row)}
                                 className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                             />
@@ -477,7 +484,7 @@ function SourceTable({
                                         }}
                                         tabIndex={0}
                                         role="button"
-                                        aria-label={`Create lead for ${row.name}`}
+                                        aria-label={`Open create-lead form for ${row.name}`}
                                         className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                                     >
                                         <TableCell>
@@ -497,7 +504,7 @@ function SourceTable({
                                         </TableCell>
                                         <TableCell>
                                             <span
-                                                className="block max-w-32 truncate font-mono text-muted-foreground"
+                                                className="block max-w-56 truncate font-mono text-muted-foreground"
                                                 title={row.code ?? "—"}
                                             >
                                                 {row.code ?? "—"}
@@ -656,6 +663,7 @@ function SourcePanel({
     pageSize,
     onPageChange,
     onPageSizeChange,
+    onTotal,
     onCreate,
 }: {
     kind: SourceKind;
@@ -665,6 +673,7 @@ function SourcePanel({
     pageSize: number;
     onPageChange: (page: number) => void;
     onPageSizeChange: (size: number) => void;
+    onTotal: (total: number | null) => void;
     onCreate: (row: SourceRow) => void;
 }) {
     const { result, isLoading, error, refresh } = useClientSource(
@@ -686,6 +695,11 @@ function SourcePanel({
     useEffect(() => {
         if (page > pageCount) onPageChange(pageCount);
     }, [page, pageCount, onPageChange]);
+
+    // The page header needs the count; this panel is the only subscriber.
+    useEffect(() => {
+        onTotal(result?.status === "ok" ? result.total : result?.status === "empty" ? 0 : null);
+    }, [onTotal, result]);
 
     if (result?.status === "ok") {
         // Stale-while-revalidate: the hook keeps the previous result during a
@@ -779,6 +793,10 @@ export function LeadGenerationTabs() {
     });
     const [prefill, setPrefill] = useState<LeadPrefill | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [tab, setTab] = useState<SourceKind>("customer");
+    const [customerTotal, setCustomerTotal] = useState<number | null>(null);
+    const [prospectingTotal, setProspectingTotal] = useState<number | null>(null);
+    const activeTotal = tab === "customer" ? customerTotal : prospectingTotal;
 
     const { clients, isLoading: clientsLoading, error: clientsError, refresh: refreshClients } =
         useClients();
@@ -844,6 +862,12 @@ export function LeadGenerationTabs() {
         setProspectingPage(1);
     }
 
+    function resetFilters() {
+        setSearch("");
+        setCustomerPage(1);
+        setProspectingPage(1);
+    }
+
     function openFor(row: SourceRow) {
         if (dealerId === null) return;
         setPrefill(toPrefill(row, dealerId));
@@ -858,6 +882,12 @@ export function LeadGenerationTabs() {
 
     return (
         <div className="grid gap-4">
+            {activeTotal !== null ? (
+                <p className="text-sm text-muted-foreground tabular-nums">
+                    {activeTotal.toLocaleString()} {tab === "customer" ? "customer" : "prospect"}
+                    {activeTotal === 1 ? "" : "s"}
+                </p>
+            ) : null}
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative w-full sm:max-w-xs">
                     <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -869,6 +899,16 @@ export function LeadGenerationTabs() {
                         className="pl-8"
                     />
                 </div>
+                {search.trim() ? (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={resetFilters}
+                        className="self-start sm:self-auto"
+                    >
+                        Reset
+                    </Button>
+                ) : null}
                 <ClientCombobox
                     clients={clients}
                     value={resolved ?? null}
@@ -902,7 +942,7 @@ export function LeadGenerationTabs() {
                     </EmptyHeader>
                 </Empty>
             ) : (
-                <Tabs defaultValue="customer">
+                <Tabs value={tab} onValueChange={(value) => setTab(value as SourceKind)}>
                     <TabsList>
                         <TabsTrigger value="customer" className="min-h-11 md:min-h-0">
                             Customer
@@ -920,6 +960,7 @@ export function LeadGenerationTabs() {
                             pageSize={pageSize}
                             onPageChange={setCustomerPage}
                             onPageSizeChange={changePageSize}
+                            onTotal={setCustomerTotal}
                             onCreate={openFor}
                         />
                     </TabsContent>
@@ -938,6 +979,7 @@ export function LeadGenerationTabs() {
                             pageSize={pageSize}
                             onPageChange={setProspectingPage}
                             onPageSizeChange={changePageSize}
+                            onTotal={setProspectingTotal}
                             onCreate={openFor}
                         />
                     </TabsContent>

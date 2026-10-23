@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { TriangleAlert, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,8 @@ const BLANK = {
 function FieldError({ message }: { message?: string }) {
     if (!message) return null;
     return (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="flex items-start gap-1 text-xs text-foreground" role="alert">
+            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
             {message}
         </p>
     );
@@ -35,6 +37,7 @@ function FieldError({ message }: { message?: string }) {
 
 /** Manual entry of a prospect that never existed as a lead — not conversion. */
 export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
+    const router = useRouter();
     const [form, setForm] = useState(BLANK);
     const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
     const [duplicate, setDuplicate] = useState<DuplicateMatch | null>(null);
@@ -91,7 +94,8 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
             <CardHeader>
                 <CardTitle>New prospect</CardTitle>
                 <CardDescription>
-                    Manually enter a prospect that never existed as a lead. Mobile or email is required.
+                    Mobile or email is required. Submitting saves the prospect to the Telemarketing
+                    Pipeline with status New.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -119,15 +123,18 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
                         </AlertDescription>
                     </Alert>
                 ) : null}
-                <form onSubmit={handleSubmit} className="grid gap-3">
+                <form onSubmit={handleSubmit} noValidate className="grid gap-3">
                     <div className="grid gap-1.5">
-                        <Label htmlFor="nc-company">Company name *</Label>
+                        <Label htmlFor="nc-company">
+                            Company name <span aria-hidden="true" className="text-destructive">*</span>
+                        </Label>
                         <Input
                             id="nc-company"
                             value={form.companyName}
                             onChange={(e) => set("companyName")(e.target.value)}
                             placeholder="Acme Trading"
                             maxLength={191}
+                            aria-required="true"
                             aria-invalid={Boolean(error("company_name"))}
                         />
                         <FieldError message={error("company_name")} />
@@ -157,8 +164,14 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
                         </div>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <p
+                            id="nc-contact-channel-requirement"
+                            className="text-xs text-muted-foreground sm:col-span-2"
+                        >
+                            At least one of mobile or email is required.
+                        </p>
                         <div className="grid gap-1.5">
-                            <Label htmlFor="nc-mobile">Mobile *</Label>
+                            <Label htmlFor="nc-mobile">Mobile</Label>
                             <Input
                                 id="nc-mobile"
                                 value={form.mobile}
@@ -167,11 +180,12 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
                                 maxLength={32}
                                 inputMode="tel"
                                 aria-invalid={Boolean(error("mobile"))}
+                                aria-describedby="nc-contact-channel-requirement"
                             />
                             <FieldError message={error("mobile")} />
                         </div>
                         <div className="grid gap-1.5">
-                            <Label htmlFor="nc-email">Email *</Label>
+                            <Label htmlFor="nc-email">Email</Label>
                             <Input
                                 id="nc-email"
                                 type="email"
@@ -180,11 +194,11 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
                                 placeholder="jane@example.com"
                                 maxLength={191}
                                 aria-invalid={Boolean(error("email"))}
+                                aria-describedby="nc-contact-channel-requirement"
                             />
                             <FieldError message={error("email")} />
                         </div>
                     </div>
-                    <p className="-mt-1 text-xs text-muted-foreground">* Company plus mobile or email.</p>
                     <div className="grid gap-1.5">
                         <Label htmlFor="nc-address">Address</Label>
                         <Input
@@ -232,11 +246,18 @@ export function NewCustomerForm({ onCreated }: { onCreated?: () => void }) {
                         <FieldError message={error("need")} />
                     </div>
                     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                        <Button type="button" variant="outline" onClick={reset} disabled={isSubmitting}>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                                router.push("/customer-activation/telemarketing/telemarketing-pipeline")
+                            }
+                            disabled={isSubmitting}
+                        >
                             Cancel
                         </Button>
                         <Button type="submit" disabled={!canSubmit}>
-                            {isSubmitting ? "Saving…" : "Submit"}
+                            {isSubmitting ? "Saving…" : "Save prospect"}
                         </Button>
                     </div>
                 </form>

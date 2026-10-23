@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, Check, ChevronsUpDown } from "lucide-react";
+import { ArrowLeft, Check, ChevronsUpDown, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import {
   Command,
   CommandEmpty,
@@ -142,6 +142,11 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
     [stages, lead?.stage_id],
   );
 
+  // The route metadata is the generic "Lead"; name the record once it loads.
+  useEffect(() => {
+    if (lead) document.title = `${lead.company_name} (${lead.lead_code})`;
+  }, [lead]);
+
   if (isLoading) {
     return (
       <div className="space-y-4" aria-live="polite">
@@ -154,7 +159,24 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
     );
   }
 
-  if (error || !lead) {
+  if (error) {
+    return (
+      <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+        <p className="text-sm font-medium">Could not load the lead.</p>
+        <p className="text-sm text-muted-foreground" role="alert">
+          {error}
+        </p>
+        <div>
+          <Button size="sm" variant="outline" onClick={() => void refresh()}>
+            <RefreshCw className="size-4" aria-hidden />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!lead) {
     return (
       <Empty>
         <EmptyHeader>
@@ -163,7 +185,7 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
           </EmptyMedia>
           <EmptyTitle>Lead not available</EmptyTitle>
           <EmptyDescription>
-            {error ?? "This lead no longer exists, or the id is not a lead id."}
+            This lead no longer exists, or the id is not a lead id.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -249,7 +271,17 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Stage</CardTitle>
+            <h2 className="font-semibold leading-none">Log activity</h2>
+            <CardDescription>Every entry is stamped with your agent and time.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ActivityForm onSubmit={log} isPending={isCreating} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="font-semibold leading-none">Stage</h2>
             <CardDescription>
               A won or lost stage closes the lead and takes it out of the pool.
             </CardDescription>
@@ -264,13 +296,12 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
                 onValueChange={handleStageChange}
               />
               <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                Now in{" "}
+                <span>Now in{" "}</span>
                 {currentStage ? (
                   <StatusPill tone={stageTone(currentStage)}>{currentStage.stage_name}</StatusPill>
                 ) : (
                   "an unknown stage"
                 )}
-                .
               </p>
             </div>
 
@@ -316,7 +347,7 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Contact</CardTitle>
+            <h2 className="font-semibold leading-none">Contact</h2>
             <CardDescription>The details captured when the lead was created.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -338,23 +369,13 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Activity</CardTitle>
+            <h2 className="font-semibold leading-none">Activity</h2>
             <CardDescription>
               Calls, emails and visits logged against this lead.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ActivityTimeline activities={activities} isLoading={activitiesLoading} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Log activity</CardTitle>
-            <CardDescription>Every entry is stamped with your agent and time.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActivityForm onSubmit={log} isPending={isCreating} />
           </CardContent>
         </Card>
       </div>

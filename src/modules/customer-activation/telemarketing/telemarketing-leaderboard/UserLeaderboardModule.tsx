@@ -2,18 +2,21 @@
 
 import { useState } from "react";
 import { MotionConfig } from "framer-motion";
+import { PeriodSelect, rollingPeriodOptions } from "../_shared/period-select";
 import { LeaderboardTable } from "./components/leaderboard-table";
-import { PeriodSegmentedControl } from "./components/period-segmented-control";
 import { useLeaderboard } from "./hooks/use-leaderboard";
-import type {
-  LeaderboardPeriod,
-  LeaderboardRange,
+import {
+  LEADERBOARD_PERIODS,
+  type LeaderboardPeriod,
+  type LeaderboardRange,
 } from "./types/leaderboard.schema";
 
 const rangeFormat = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
 });
+
+const PERIOD_SELECT_OPTIONS = rollingPeriodOptions(LEADERBOARD_PERIODS);
 
 /** "15 Oct – 22 Oct" from Manila wall-clock stamps ("YYYY-MM-DD HH:mm:ss"). */
 function formatRangeShort(range: LeaderboardRange): string {
@@ -48,7 +51,16 @@ export function UserLeaderboardModule() {
               </p>
             ) : null}
           </div>
-          <PeriodSegmentedControl value={period} onChange={setPeriod} />
+          <PeriodSelect
+            value={String(period)}
+            options={PERIOD_SELECT_OPTIONS}
+            onChange={(value) => {
+              const next = Number(value);
+              if (LEADERBOARD_PERIODS.includes(next as LeaderboardPeriod)) {
+                setPeriod(next as LeaderboardPeriod);
+              }
+            }}
+          />
         </div>
         <LeaderboardTable
           rows={rows}

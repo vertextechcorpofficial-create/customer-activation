@@ -63,8 +63,8 @@ async function nonTerminalStageIds(): Promise<number[]> {
   return data.filter((stage) => !isTerminalStage(stage)).map((stage) => stage.stage_id);
 }
 
-/** Sort keys the pool listing understands. Code sorts in Directus; claimants sorts in memory after annotation. */
-export type PoolSort = "code" | "-code" | "claimants" | "-claimants";
+/** Sort keys the pool listing understands. Code and company sort in Directus; claimants sorts in memory after annotation. */
+export type PoolSort = "code" | "-code" | "company" | "-company" | "claimants" | "-claimants";
 
 export interface PoolFilters {
   agentId: number;
@@ -104,7 +104,11 @@ export async function listPool(args: PoolFilters): Promise<PoolResult> {
       ],
     });
   }
-  const sortParam = args.sort === "code" || args.sort === "-code" ? args.sort.replace("code", "lead_code") : "-created_at";
+  const sortKey = args.sort?.replace("-", "");
+  const sortColumn = sortKey === "code" ? "lead_code" : sortKey === "company" ? "company_name" : null;
+  const sortParam = sortColumn
+    ? `${args.sort?.startsWith("-") ? "-" : ""}${sortColumn}`
+    : "-created_at";
   const filter = encodeURIComponent(JSON.stringify(clauses.length === 1 ? clauses[0] : { _and: clauses }));
   const body = checked<{ data: LeadView[]; meta?: { filter_count?: number } }>(
     await dFetch(

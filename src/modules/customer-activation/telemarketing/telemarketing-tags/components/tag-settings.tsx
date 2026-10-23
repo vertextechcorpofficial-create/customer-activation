@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, Loader2, Pencil, Plus, PowerOff, RefreshCw, Search, Tags } from "lucide-react";
+import { AlertTriangle, Loader2, Pencil, Plus, PowerOff, RefreshCw, Search, SearchX, Tags } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     AlertDialog,
@@ -110,6 +110,17 @@ export function TagSettings() {
     const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const to = Math.min(page * PAGE_SIZE, total);
+
+    // The header talks about the collection, not the filter, so a no-match
+    // search reads "0 of 8 tags" instead of claiming the list is empty.
+    const [collectionTotal, setCollectionTotal] = useState(0);
+    const isFiltered = search.trim() !== "";
+    const countLabel = error
+        ? "—"
+        : isFiltered
+          ? `${total} of ${collectionTotal} ${collectionTotal === 1 ? "tag" : "tags"}`
+          : `${total} ${total === 1 ? "tag" : "tags"}`;
+
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; tag: Tag } | null>(
         null,
     );
@@ -179,7 +190,12 @@ export function TagSettings() {
         <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tags</h1>
+                    <div className="flex items-baseline gap-2">
+                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tags</h1>
+                        <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                            {countLabel}
+                        </p>
+                    </div>
                     <p className="text-sm text-muted-foreground">
                         Create colour-coded tags to label and segment telemarketing leads.
                     </p>
@@ -199,7 +215,11 @@ export function TagSettings() {
                     <Input
                         value={search}
                         onChange={(event) => {
-                            setSearch(event.target.value);
+                            const value = event.target.value;
+                            // Remember the unfiltered total as the filter first hides the list,
+                            // so the header can say "0 of 8 tags" instead of "0 tags".
+                            if (search.trim() === "" && value.trim() !== "") setCollectionTotal(total);
+                            setSearch(value);
                             setPage(1);
                         }}
                         placeholder="Search tags..."
@@ -208,25 +228,31 @@ export function TagSettings() {
                     />
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-sm tabular-nums text-muted-foreground">
-                        {from}–{to} of {total}
-                    </span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page <= 1 || isLoading}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page >= pageCount || isLoading}
-                        onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                    >
-                        Next
-                    </Button>
+                    {pageCount > 1 && (
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                            {from}–{to} of {total}
+                        </span>
+                    )}
+                    {pageCount > 1 && (
+                        <>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={page <= 1 || isLoading}
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            >
+                                Previous
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={page >= pageCount || isLoading}
+                                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                            >
+                                Next
+                            </Button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -254,23 +280,48 @@ export function TagSettings() {
                         </div>
                     ) : tags.length === 0 ? (
                         <div className="p-6">
-                            <Empty>
-                                <EmptyHeader>
-                                    <EmptyMedia variant="icon">
-                                        <Tags />
-                                    </EmptyMedia>
-                                    <EmptyTitle>No tags yet</EmptyTitle>
-                                    <EmptyDescription>
-                                        Create the first tag to start labelling leads.
-                                    </EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button onClick={openCreate} className="min-h-11 md:min-h-0">
-                                        <Plus className="size-4" />
-                                        New tag
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
+                            {search.trim() !== "" ? (
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <SearchX />
+                                        </EmptyMedia>
+                                        <EmptyTitle>No tags match “{search.trim()}”</EmptyTitle>
+                                        <EmptyDescription>
+                                            Check the spelling, or clear the search to see every tag.
+                                        </EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setSearch("");
+                                                setPage(1);
+                                            }}
+                                        >
+                                            Clear search
+                                        </Button>
+                                    </EmptyContent>
+                                </Empty>
+                            ) : (
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <Tags />
+                                        </EmptyMedia>
+                                        <EmptyTitle>No tags yet</EmptyTitle>
+                                        <EmptyDescription>
+                                            Create the first tag to start labelling leads.
+                                        </EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button onClick={openCreate} className="min-h-11 md:min-h-0">
+                                            <Plus className="size-4" />
+                                            New tag
+                                        </Button>
+                                    </EmptyContent>
+                                </Empty>
+                            )}
                         </div>
                     ) : (
                         <>
@@ -292,25 +343,27 @@ export function TagSettings() {
                                             event.preventDefault();
                                             openEdit(tag);
                                         }}
-                                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
                                     >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex min-w-0 items-center gap-2">
-                                                <span
-                                                    aria-hidden="true"
-                                                    className="size-4 shrink-0 rounded-full border"
-                                                    style={{ backgroundColor: tag.color ?? "transparent" }}
-                                                />
-                                                <div className="min-w-0">
-                                                    <p className="font-medium break-words">{tag.tag_name}</p>
-                                                    <p className="font-mono text-xs text-muted-foreground break-words">
-                                                        {tag.tag_code}
-                                                    </p>
-                                                </div>
+                                        <div className="flex min-w-0 items-start gap-2">
+                                            <span
+                                                aria-hidden="true"
+                                                className="mt-1 size-4 shrink-0 rounded-full border"
+                                                style={{ backgroundColor: tag.color ?? "transparent" }}
+                                            />
+                                            <div className="min-w-0">
+                                                <p className="font-medium break-words">{tag.tag_name}</p>
+                                                <p
+                                                    className="font-mono text-xs break-words text-muted-foreground"
+                                                    title={tag.color ?? undefined}
+                                                >
+                                                    {tag.tag_code}
+                                                    {tag.color ? ` · ${tag.color}` : ""}
+                                                </p>
                                             </div>
-                                            <TagStatus tag={tag} />
                                         </div>
-                                        <div className="flex items-center justify-end gap-1">
+                                        <div className="flex shrink-0 items-center gap-1">
+                                            <TagStatus tag={tag} />
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
@@ -477,7 +530,11 @@ export function TagSettings() {
                                     aria-describedby={errors.tag_code ? "tag-code-error" : undefined}
                                 />
                                 {errors.tag_code && (
-                                    <p id="tag-code-error" className="text-xs text-destructive">
+                                    <p
+                                        id="tag-code-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.tag_code}
                                     </p>
                                 )}
@@ -497,7 +554,11 @@ export function TagSettings() {
                                     aria-describedby={errors.tag_name ? "tag-name-error" : undefined}
                                 />
                                 {errors.tag_name && (
-                                    <p id="tag-name-error" className="text-xs text-destructive">
+                                    <p
+                                        id="tag-name-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.tag_name}
                                     </p>
                                 )}

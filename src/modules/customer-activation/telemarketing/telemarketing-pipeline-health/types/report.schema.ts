@@ -49,7 +49,6 @@ export const StageHealthSchema = z.object({
   /** True for Closed Won / Closed Lost — closed stages are not work. */
   isTerminal: z.boolean(),
   leadCount: z.number().int().nonnegative(),
-  share: z.number().nonnegative(),
   avgDaysInStage: z.number().nonnegative(),
   oldestAgeDays: z.number().nonnegative(),
 });

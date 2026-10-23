@@ -11,11 +11,25 @@ const LeadListQuerySchema = z.object({
   stageId: z.coerce.number().int().positive().optional(),
   source: z.string().min(1).max(64).optional(),
   search: z.string().max(191).optional(),
+  sort: z
+    .enum([
+      "code",
+      "-code",
+      "company",
+      "-company",
+      "stage",
+      "-stage",
+      "last_activity",
+      "-last_activity",
+      "next_follow_up",
+      "-next_follow_up",
+    ])
+    .optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
-/** Leads for the pipeline list view, newest first. */
+/** Leads for the pipeline list view, newest first unless `sort` overrides. */
 export async function GET(req: NextRequest) {
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   if (!token) {
@@ -26,6 +40,7 @@ export async function GET(req: NextRequest) {
     stageId: query.get("stageId") || undefined,
     source: query.get("source") || undefined,
     search: query.get("search") || undefined,
+    sort: query.get("sort") || undefined,
     page: query.get("page") || undefined,
     limit: query.get("limit") || undefined,
   });

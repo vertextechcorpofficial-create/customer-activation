@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -35,7 +35,6 @@ import {
   Layers,
   Loader2,
   RefreshCw,
-  Settings,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -142,6 +141,7 @@ function MoveMenu({
           variant="ghost"
           size="sm"
           disabled={disabled}
+          aria-label={`Move ${lead.company_name} to another stage`}
           className="min-h-11 md:min-h-0 h-8 shrink-0 px-2 text-xs"
         >
           <ArrowRightLeft className="size-3.5" aria-hidden />
@@ -174,20 +174,21 @@ function MoveMenu({
 /** Pure card visual — shared by the sortable card and the DragOverlay preview. */
 function CardVisual({
   lead,
-  stage,
   dragHandle,
   moveControl,
   className,
   navigable = true,
 }: {
   lead: BoardLead;
-  stage: Stage;
   dragHandle?: ReactNode;
   moveControl?: ReactNode;
   className?: string;
   navigable?: boolean;
 }) {
-  const contactLine = `${lead.contact_name || "No contact"} · ${lead.mobile || lead.email || "No number"}`;
+  const contactName = lead.contact_name || "—";
+  // Never render a missing-person placeholder joined to a real number: the two
+  // facts are separate, so the card cannot read "No contact · 0912…".
+  const contactValue = lead.mobile || lead.email;
   const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
   return (
     <article
@@ -207,51 +208,53 @@ function CardVisual({
             {lead.company_name}
           </span>
         </span>
-        <span
-          className="max-w-24 shrink-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
-          title={lead.lead_code}
-        >
-          {lead.lead_code}
-        </span>
       </div>
 
-      <p className="mt-1 truncate text-xs text-muted-foreground" title={contactLine}>
-        {contactLine}
+      <p className="mt-1 flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground">
+        <span className="min-w-0 truncate" title={contactName}>
+          {contactName}
+        </span>
+        {contactValue ? <span className="shrink-0 tabular-nums">{contactValue}</span> : null}
       </p>
 
       <dl className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
+          <dt className="sr-only">Lead code</dt>
+          <dd className="font-mono tabular-nums" title={lead.lead_code}>
+            {lead.lead_code}
+          </dd>
+        </div>
         <div className="flex items-center gap-1">
           <Users className="size-3.5 shrink-0" aria-hidden />
           <dt className="sr-only">Claimants</dt>
           <dd className="tabular-nums">{lead.claimant_count}</dd>
         </div>
-        <div className="flex items-center gap-1">
-          <Clock className="size-3.5 shrink-0" aria-hidden />
-          <dt className="sr-only">Last activity</dt>
-          <dd>{formatRelative(lead.last_activity_at)}</dd>
-        </div>
-        <div className="flex items-center gap-1">
-          <CalendarClock className="size-3.5 shrink-0" aria-hidden />
-          <dt className="sr-only">Next follow-up</dt>
-          <dd>{lead.next_follow_up_at ? formatDay(lead.next_follow_up_at) : "No follow-up"}</dd>
-        </div>
+        {lead.last_activity_at ? (
+          <div className="flex items-center gap-1">
+            <Clock className="size-3.5 shrink-0" aria-hidden />
+            <dt className="sr-only">Last activity</dt>
+            <dd>{formatRelative(lead.last_activity_at)}</dd>
+          </div>
+        ) : null}
+        {lead.next_follow_up_at ? (
+          <div className="flex items-center gap-1">
+            <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+            <dt className="sr-only">Next follow-up</dt>
+            <dd>{formatDay(lead.next_follow_up_at)}</dd>
+          </div>
+        ) : null}
       </dl>
 
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <StatusPill tone={stageTone(stage)} className="max-w-28 truncate" title={stage.stage_name}>
-            {stage.stage_name}
-          </StatusPill>
-          {lead.product_interest ? (
-            <span
-              className="max-w-28 truncate rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-              title={lead.product_interest}
-            >
-              {lead.product_interest}
-            </span>
-          ) : null}
-        </div>
-        {moveControl ? <span className="relative z-10 shrink-0">{moveControl}</span> : null}
+        {lead.product_interest ? (
+          <span
+            className="max-w-28 truncate rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            title={lead.product_interest}
+          >
+            {lead.product_interest}
+          </span>
+        ) : null}
+        {moveControl ? <span className="relative z-10 ml-auto shrink-0">{moveControl}</span> : null}
       </div>
     </article>
   );
@@ -330,7 +333,6 @@ function SortableCard({
     <li ref={setNodeRef} style={style} className="min-w-0">
       <CardVisual
         lead={lead}
-        stage={stage}
         className={isDragging ? "opacity-40" : undefined}
         dragHandle={
           <button
@@ -410,17 +412,22 @@ function StageColumn({
 }) {
   const tone = stageTone(stage);
   const { setNodeRef } = useDroppable({ id: `column-${stage.stage_id}`, data: { stageId: stage.stage_id } });
+  const countLabel =
+    leads.length < total
+      ? `${leads.length} of ${total} leads`
+      : `${total} ${total === 1 ? "lead" : "leads"}`;
 
   return (
     <section
       ref={setNodeRef}
+      data-stage-column={stage.stage_id}
       className={`flex max-h-[calc(100vh-14rem)] min-h-96 w-64 shrink-0 snap-start flex-col gap-3 rounded-lg border border-border border-t-2 bg-muted/30 p-3${isOver ? " ring-2 ring-primary" : ""} ${stageAccentClass(tone)}`}
     >
       <header className="flex min-w-0 shrink-0 items-center justify-between gap-2">
         <h2 className="min-w-0 truncate text-sm font-semibold" title={stage.stage_name}>
           {stage.stage_name}
         </h2>
-        <StatusPill tone={tone} className="shrink-0 rounded-full tabular-nums">
+        <StatusPill tone={tone} className="shrink-0 rounded-full tabular-nums" aria-label={countLabel}>
           {leads.length < total ? `${leads.length} of ${total}` : total}
         </StatusPill>
       </header>
@@ -475,6 +482,7 @@ export function PipelineBoard() {
   const [overStageId, setOverStageId] = useState<number | null>(null);
   const [lostDnd, setLostDnd] = useState<{ lead: BoardLead; target: Stage } | null>(null);
   const [lostReason, setLostReason] = useState("");
+  const stripRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -581,10 +589,15 @@ export function PipelineBoard() {
     setLostReason("");
   };
 
+  const jumpToStage = (stageId: number) => {
+    stripRef.current
+      ?.querySelector<HTMLElement>(`[data-stage-column="${stageId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+  };
+
   const activeLead = activeDrag
     ? columns.flatMap((column) => column.leads).find((lead) => lead.lead_id === activeDrag.leadId)
     : undefined;
-  const activeStage = activeLead ? stages.find((stage) => stage.stage_id === activeLead.stage_id) : undefined;
 
   if (isLoading && columns.length === 0) {
     return (
@@ -633,31 +646,29 @@ export function PipelineBoard() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">Pipeline board</h1>
-          <p className="text-sm text-muted-foreground">
-            {columns.length} active {columns.length === 1 ? "stage" : "stages"}. Move a lead to hand it to the
-            next step.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button asChild variant="outline" className="min-h-11 md:min-h-0">
-            <Link href="/customer-activation/telemarketing/telemarketing-pipeline/pool">
-              <Users className="size-4" aria-hidden />
-              Pool
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="min-h-11 md:min-h-0">
-            <Link href="/customer-activation/telemarketing/telemarketing-pipeline/settings">
-              <Settings className="size-4" aria-hidden />
-              Settings
-            </Link>
-          </Button>
-          <Button asChild variant="outline" className="min-h-11 md:min-h-0">
-            <Link href="/customer-activation/telemarketing/telemarketing-pipeline/leads">All leads</Link>
-          </Button>
-        </div>
+      <div className="min-w-0">
+        <h1 className="text-lg font-semibold tracking-tight">Board</h1>
+        <p className="text-sm text-muted-foreground">
+          {columns.length} active {columns.length === 1 ? "stage" : "stages"}. Move a lead to hand it to the next
+          step.
+        </p>
+      </div>
+
+      <div role="group" aria-label="Jump to stage" className="flex flex-wrap items-center gap-1">
+        {columns.map((column) => (
+          <button
+            key={column.stage.stage_id}
+            type="button"
+            onClick={() => jumpToStage(column.stage.stage_id)}
+            aria-label={`Jump to ${column.stage.stage_name}, ${column.total} ${column.total === 1 ? "lead" : "leads"}`}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <span className="truncate">{column.stage.stage_name}</span>
+            <span className="tabular-nums" aria-hidden>
+              {column.total}
+            </span>
+          </button>
+        ))}
       </div>
 
       <DndContext
@@ -668,7 +679,13 @@ export function PipelineBoard() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="-mx-2 flex snap-x gap-3 overflow-x-auto px-2 pb-3">
+        <div
+          ref={stripRef}
+          tabIndex={0}
+          role="region"
+          aria-label="Pipeline stages"
+          className="-mx-2 flex snap-x gap-3 overflow-x-auto px-2 pb-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
           {viewColumns.map((column) => (
             <StageColumn
               key={column.stage.stage_id}
@@ -688,9 +705,9 @@ export function PipelineBoard() {
           ))}
         </div>
         <DragOverlay>
-          {activeLead && activeStage ? (
+          {activeLead ? (
             <div className="w-64 scale-105 opacity-95 shadow-xl">
-              <CardVisual lead={activeLead} stage={activeStage} navigable={false} />
+              <CardVisual lead={activeLead} navigable={false} />
             </div>
           ) : null}
         </DragOverlay>
