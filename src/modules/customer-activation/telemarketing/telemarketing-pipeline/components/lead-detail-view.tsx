@@ -37,6 +37,47 @@ import { useStages } from "../hooks/use-stages";
 import { moveLeadStage } from "../providers/stage-provider";
 import type { Stage } from "../types/pipeline.schema";
 
+interface TelemarketingProduct {
+  product_id: number;
+  product_code: string;
+  name: string;
+  is_active: number | boolean;
+  sort_order: number | null;
+}
+
+const PRODUCTS_URL = "/api/customer-activation/telemarketing/telemarketing-products";
+
+/**
+ * Active products for name resolution. Never throws: a missing catalog
+ * resolves to an empty list and every product row renders nothing.
+ */
+function useProducts() {
+  const [products, setProducts] = useState<TelemarketingProduct[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(PRODUCTS_URL, { cache: "no-store" });
+        const body = (await res.json().catch(() => null)) as {
+          success: boolean;
+          data?: TelemarketingProduct[];
+        } | null;
+        if (!res.ok || !body?.success) throw new Error("Could not load products");
+        if (!cancelled) setProducts((body.data ?? []).filter((p) => Number(p.is_active) === 1));
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { products };
+}
+
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
@@ -133,6 +174,7 @@ function StageCombobox({
 export function LeadDetailView({ leadId }: { leadId: number }) {
   const { lead, tags, isLoading, error, refresh } = useLeadRecord(leadId);
   const { stages, isLoading: stagesLoading } = useStages();
+  const { products } = useProducts();
   const {
     activities,
     isLoading: activitiesLoading,
@@ -244,6 +286,12 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
   const activeClaimants = claimants.length;
   const claimedByMe =
     agentId !== null && claimants.some((claimant) => claimant.agent_id === agentId);
+  // Read-only identity fact: an unknown or null product_id renders nothing,
+  // never a placeholder — same for an empty catalog.
+  const productName =
+    lead.product_id == null
+      ? null
+      : (products.find((p) => p.product_id === lead.product_id)?.name ?? null);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4">
@@ -440,7 +488,7 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
                 <Field label="Email" value={lead.email} />
                 <Field label="Address" value={lead.address} />
                 <Field label="Industry" value={lead.industry} />
-                <Field label="Product interest" value={lead.product_interest} />
+                {productName ? <Field label="Product" value={productName} /> : null}
                 <Field label="Need" value={lead.need} />
                 <Field label="Referral code" value={lead.referral_code} />
                 <Field label="Campaign code" value={lead.campaign_code} />

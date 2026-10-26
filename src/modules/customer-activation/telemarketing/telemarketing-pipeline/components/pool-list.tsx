@@ -46,6 +46,7 @@ import { StatusPill } from "./status-pill";
 import { stageTone } from "../lib/stage-tone";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePool } from "../hooks/use-pool";
+import type { UsePoolParams } from "../hooks/use-pool";
 import { useStages } from "../hooks/use-stages";
 import { claimLead, getPool } from "../providers/claim-provider";
 import { isTerminalStage } from "../types/pipeline.schema";
@@ -56,6 +57,49 @@ import { cn } from "@/lib/utils";
 
 const ALL = "all";
 const PAGE_SIZES = [10, 25, 50];
+const PRODUCTS_URL = "/api/customer-activation/telemarketing/telemarketing-products";
+
+interface TelemarketingProduct {
+  product_id: number;
+  product_code: string;
+  name: string;
+  is_active: number | boolean;
+  sort_order: number | null;
+}
+
+/**
+ * Active products for the filter. Never throws: a missing catalog resolves
+ * to an empty list and the filter stays on "All products" without breaking layout.
+ */
+function useProducts() {
+  const [products, setProducts] = useState<TelemarketingProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(PRODUCTS_URL, { cache: "no-store" });
+        const body = (await res.json().catch(() => null)) as {
+          success: boolean;
+          data?: TelemarketingProduct[];
+        } | null;
+        if (!res.ok || !body?.success) throw new Error("Could not load products");
+        if (!cancelled) setProducts((body.data ?? []).filter((p) => Number(p.is_active) === 1));
+      } catch {
+        if (!cancelled) setProducts([]);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { products, isLoading };
+}
 
 type SortKey = "code" | "company" | "claimants";
 type SortDir = "asc" | "desc";
@@ -202,6 +246,108 @@ function StageCombobox({
   );
 }
 
+/** Searchable single-select product filter — same Popover + Command pattern as the stage filter. */
+function ProductCombobox({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  options: TelemarketingProduct[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter(
+        (product) =>
+          product.name.toLowerCase().includes(q) || product.product_code.toLowerCase().includes(q),
+      )
+    : options;
+  const selected = options.find((product) => String(product.product_id) === value) ?? null;
+  const label = selected ? selected.name : "All products";
+  const showAll = q === "" || "all products".includes(q);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label="Filter by product"
+          disabled={disabled}
+          className="h-9 w-full justify-between font-normal sm:w-44"
+        >
+          <span className="min-w-0 flex-1 truncate text-left" title={label}>
+            {label}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command shouldFilter={false} label="Search products">
+          <CommandInput placeholder="Search products…" value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No products found.</CommandEmpty>
+            <CommandGroup>
+              {showAll ? (
+              <CommandItem
+                value="all-products"
+                keywords={["All products"]}
+                onSelect={() => {
+                  onChange(ALL);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <Check
+                  className={cn("size-4 shrink-0", value === ALL ? "opacity-100" : "opacity-0")}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">All products</span>
+              </CommandItem>
+              ) : null}
+              {filtered.map((product) => {
+                const productValue = String(product.product_id);
+                const isSelected = productValue === value;
+                return (
+                  <CommandItem
+                    key={product.product_id}
+                    value={`${product.name} ${productValue}`}
+                    keywords={[product.name]}
+                    title={product.name}
+                    onSelect={() => {
+                      onChange(productValue);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  >
+                    <Check
+                      className={cn("size-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{product.name}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** Open leads — claim one to start working it. "Show closed" adds read-only terminal rows. */
 export function PoolList() {
   const router = useRouter();
@@ -213,6 +359,7 @@ export function PoolList() {
   const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
   const [debouncedSearch] = useDebounce(search, 300);
   const [stageFilter, setStageFilter] = useState<string>(() => searchParams.get("stageId") ?? ALL);
+  const [productFilter, setProductFilter] = useState<string>(() => searchParams.get("productId") ?? ALL);
   const [includeClosed, setIncludeClosed] = useState(() => searchParams.get("includeClosed") === "1");
   const [sortKey, setSortKey] = useState<SortKey | null>(() => parseSort(searchParams.get("sort")).key);
   const [sortDir, setSortDir] = useState<SortDir>(() => parseSort(searchParams.get("sort")).dir);
@@ -232,6 +379,7 @@ export function PoolList() {
   const [lastSummary, setLastSummary] = useState<string | null>(null);
 
   const { stages, isLoading: stagesLoading, error: stagesError } = useStages();
+  const { products, isLoading: productsLoading } = useProducts();
 
   const stageOptions = useMemo(
     () => stages.filter((stage) => Number(stage.is_active) === 1 && (includeClosed || !isTerminalStage(stage))),
@@ -249,11 +397,14 @@ export function PoolList() {
   const { items, meta, isLoading, error, refresh, claim, release } = usePool({
     search: debouncedSearch.trim() || undefined,
     stageId: stageFilter === ALL ? undefined : Number(stageFilter),
+    // Forwarded to the pool endpoint once use-pool carries it — until then the
+    // URL still mirrors the filter below.
+    productId: productFilter === ALL ? undefined : Number(productFilter),
     sort,
     page,
     limit: pageSize,
     includeClosed,
-  });
+  } as UsePoolParams);
 
   const pageCount = Math.max(1, Math.ceil(meta.total / pageSize));
   const from = meta.total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -266,7 +417,7 @@ export function PoolList() {
   // Page-scoped selection never survives a listing change.
   useEffect(() => {
     setSelected(new Map());
-  }, [debouncedSearch, stageFilter, includeClosed, sort, page, pageSize]);
+  }, [debouncedSearch, stageFilter, productFilter, includeClosed, sort, page, pageSize]);
 
   // Mirror the listing into the address bar. replaceState keeps the back
   // button meaning "leave the page" rather than "undo one keystroke".
@@ -274,16 +425,17 @@ export function PoolList() {
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (stageFilter !== ALL) params.set("stageId", stageFilter);
+    if (productFilter !== ALL) params.set("productId", productFilter);
     if (includeClosed) params.set("includeClosed", "1");
     if (sort) params.set("sort", sort);
     if (page > 1) params.set("page", String(page));
     if (pageSize !== PAGE_SIZES[0]) params.set("limit", String(pageSize));
     const query = params.toString();
     window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
-  }, [debouncedSearch, stageFilter, includeClosed, sort, page, pageSize, pathname]);
+  }, [debouncedSearch, stageFilter, productFilter, includeClosed, sort, page, pageSize, pathname]);
 
-  const isActive = search.trim() !== "" || stageFilter !== ALL || sortKey !== null || includeClosed;
-  const isFiltered = search.trim() !== "" || stageFilter !== ALL;
+  const isActive = search.trim() !== "" || stageFilter !== ALL || productFilter !== ALL || sortKey !== null || includeClosed;
+  const isFiltered = search.trim() !== "" || stageFilter !== ALL || productFilter !== ALL;
 
   // The header talks about the pool, not the filter, so a no-match search
   // reads "0 of 12 open leads" instead of claiming the pool is empty.
@@ -347,6 +499,7 @@ export function PoolList() {
   function resetControls() {
     setSearch("");
     setStageFilter(ALL);
+    setProductFilter(ALL);
     setIncludeClosed(false);
     setSortKey(null);
     setSortDir("asc");
@@ -471,6 +624,16 @@ export function PoolList() {
               }}
               disabled={stagesLoading}
             />
+            <ProductCombobox
+              options={products}
+              value={productFilter}
+              onChange={(selectedValue) => {
+                rememberTotal();
+                setProductFilter(selectedValue);
+                setPage(1);
+              }}
+              disabled={productsLoading}
+            />
             <label
               htmlFor="pool-show-closed"
               className="flex h-9 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-muted-foreground"
@@ -531,7 +694,7 @@ export function PoolList() {
                 </EmptyTitle>
                 <EmptyDescription>
                   {isActive
-                    ? "No lead matches these filters. Clear the search or widen the stage filter."
+                    ? "No lead matches these filters. Clear the search or widen the stage or product filter."
                     : includeClosed
                       ? "Leads appear here as soon as they reach an active stage."
                       : "Open leads appear here as soon as they reach a non-terminal stage."}

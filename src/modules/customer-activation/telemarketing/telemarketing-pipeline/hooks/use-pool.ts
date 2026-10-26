@@ -12,6 +12,7 @@ function toMessage(error: unknown): string {
 export interface UsePoolParams {
   search?: string;
   stageId?: number;
+  productId?: number;
   sort?: PoolSort;
   page?: number;
   limit?: number;
@@ -20,7 +21,7 @@ export interface UsePoolParams {
 
 /** Lead pool: open leads, plus closed ones when `includeClosed` is set. */
 export function usePool(params: UsePoolParams = {}) {
-  const { search, stageId, sort, page = 1, limit = 10, includeClosed = false } = params;
+  const { search, stageId, productId, sort, page = 1, limit = 10, includeClosed = false } = params;
   const [pool, setPool] = useState<PoolResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,7 @@ export function usePool(params: UsePoolParams = {}) {
   const key = JSON.stringify({
     search: search ?? "",
     stageId: stageId ?? null,
+    productId: productId ?? null,
     sort: sort ?? null,
     page,
     limit,
@@ -48,6 +50,7 @@ export function usePool(params: UsePoolParams = {}) {
           {
             search: parsed.search?.trim() ? parsed.search.trim() : undefined,
             stageId: parsed.stageId ?? undefined,
+            productId: parsed.productId ?? undefined,
             sort: parsed.sort ?? undefined,
             page: parsed.page,
             limit: parsed.limit,

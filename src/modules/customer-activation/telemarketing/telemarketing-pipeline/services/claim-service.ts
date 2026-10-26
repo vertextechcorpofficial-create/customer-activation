@@ -99,6 +99,7 @@ export interface PoolFilters {
   limit: number;
   search?: string;
   stageId?: number;
+  productId?: number;
   sort?: PoolSort;
   includeClosed?: boolean;
 }
@@ -121,6 +122,7 @@ export async function listPool(args: PoolFilters): Promise<PoolResult> {
     return { items: [], meta: { total: 0, page, limit } };
   }
   const clauses: Record<string, unknown>[] = [{ stage_id: { _in: effectiveStages } }];
+  if (args.productId !== undefined) clauses.push({ product_id: { _eq: args.productId } });
   const search = args.search?.trim();
   if (search) {
     clauses.push({

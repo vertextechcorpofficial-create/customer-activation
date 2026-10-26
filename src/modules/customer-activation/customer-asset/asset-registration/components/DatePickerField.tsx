@@ -56,11 +56,11 @@ export function DatePickerField({
                     aria-label="Date acquired"
                     disabled={disabled}
                     className={cn(
-                        "w-full justify-start px-3 text-left font-normal tabular-nums",
+                        "w-full min-w-0 justify-start gap-2 px-3 text-left font-normal tabular-nums",
                         !selected && "text-muted-foreground",
                     )}
                 >
-                    <CalendarIcon className="mr-2 size-4 shrink-0 opacity-50" aria-hidden="true" />
+                    <CalendarIcon className="size-4 shrink-0 opacity-50" aria-hidden="true" />
                     <span className="truncate">{selected ? formatLabel(selected) : "Pick a date"}</span>
                 </Button>
             </PopoverTrigger>

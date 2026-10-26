@@ -103,6 +103,8 @@ export const LeadSchema = z.object({
     need: z.string().nullable().optional(),
     stage_id: z.number().int(),
     validation_status: z.string().min(1).max(32),
+    /** One product per lead (`telemarketing_products.product_id`). Null on historical rows. */
+    product_id: z.number().int().positive().nullable().optional(),
     /** Client the lead was sourced from. Absent until the owner applies the provenance migration. */
     dealer_id: z.number().int().nullable().optional(),
     created_by: z.number().int().nullable().optional(),
@@ -125,6 +127,8 @@ export const LeadCreateSchema = z
         product_interest: z.string().max(64).nullable().optional(),
         need: z.string().nullable().optional(),
         stage_id: z.number().int().optional(),
+        /** One product per lead. Omitted/null lands in the null-product bucket for dedupe. */
+        product_id: z.number().int().positive().nullable().optional(),
         tag_ids: z.array(z.number().int()).optional(),
         /** Client the lead was sourced from. Stored only when the `dealer_id` column exists (see provenance doc). */
         dealer_id: z.number().int().positive().optional(),
@@ -145,6 +149,7 @@ export const LeadUpdateSchema = z
         product_interest: z.string().max(64).nullable().optional(),
         need: z.string().nullable().optional(),
         stage_id: z.number().int().optional(),
+        product_id: z.number().int().positive().nullable().optional(),
     })
     .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
 

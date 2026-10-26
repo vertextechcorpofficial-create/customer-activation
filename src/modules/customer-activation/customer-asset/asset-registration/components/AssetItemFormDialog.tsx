@@ -123,7 +123,7 @@ function GroupCombobox({
                     aria-expanded={open}
                     aria-label="Group"
                     className={cn(
-                        "w-full justify-between gap-2 font-normal",
+                        "w-full min-w-0 justify-between gap-2 font-normal",
                         value == null && "text-muted-foreground",
                     )}
                 >
@@ -312,7 +312,7 @@ export function AssetItemFormDialog({
                         {errors.name ? <p className="text-xs text-destructive">{errors.name.message}</p> : null}
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label htmlFor="asset-category">Category</Label>
                             <Input
                                 id="asset-category"
@@ -321,7 +321,7 @@ export function AssetItemFormDialog({
                                 maxLength={191}
                             />
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label>Group</Label>
                             <Controller
                                 name="group_id"
@@ -337,7 +337,7 @@ export function AssetItemFormDialog({
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label htmlFor="asset-quantity">Quantity</Label>
                             <Input
                                 id="asset-quantity"
@@ -352,7 +352,7 @@ export function AssetItemFormDialog({
                                 <p className="text-xs text-destructive">{errors.quantity.message}</p>
                             ) : null}
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label htmlFor="asset-cost">Cost / item</Label>
                             <Input
                                 id="asset-cost"
@@ -367,7 +367,7 @@ export function AssetItemFormDialog({
                                 <p className="text-xs text-destructive">{errors.cost_per_item.message}</p>
                             ) : null}
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label htmlFor="asset-lifespan">Lifespan (mo)</Label>
                             <Input
                                 id="asset-lifespan"
@@ -382,7 +382,7 @@ export function AssetItemFormDialog({
                                 <p className="text-xs text-destructive">{errors.life_span_months.message}</p>
                             ) : null}
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                             <Label htmlFor="asset-acquired">Acquired</Label>
                             <Controller
                                 name="date_acquired"

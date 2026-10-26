@@ -11,8 +11,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Pipeline Stage Settings",
-  description: "Telemarketing pipeline stage settings: order, rename, and activation.",
+  title: "Pipeline Settings",
+  description: "Telemarketing pipeline settings: stages.",
 };
 
 export default async function TelemarketingPipelineSettingsPage() {

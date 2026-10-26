@@ -16,6 +16,7 @@ const PoolQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
   search: z.string().max(191).optional(),
   stageId: z.coerce.number().int().positive().optional(),
+  productId: z.coerce.number().int().positive().optional(),
   sort: z.enum(["code", "-code", "company", "-company", "claimants", "-claimants"]).optional(),
   includeClosed: z
     .enum(["0", "1", "true", "false"])
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
     limit: absent(query.get("limit")),
     search: absent(query.get("search")),
     stageId: absent(query.get("stageId")),
+    productId: absent(query.get("productId")),
     sort: absent(query.get("sort")),
     includeClosed: absent(query.get("includeClosed")),
   });

@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
 import {
     Dialog,
     DialogClose,
@@ -14,10 +23,176 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { LeadCreateSchema, type SourceOption } from "../types/lead.schema";
+import { LeadCreateSchema, type LeadCreate, type SourceOption } from "../types/lead.schema";
 import { createLead } from "../providers/lead-provider";
 import { TagMultiCombobox } from "./tag-multi-combobox";
+import { cn } from "@/lib/utils";
+
+interface TelemarketingProduct {
+    product_id: number;
+    product_code: string;
+    name: string;
+    is_active: number | boolean;
+    sort_order: number | null;
+}
+
+const PRODUCTS_URL = "/api/customer-activation/telemarketing/telemarketing-products";
+
+/**
+ * Active products for the single-select. Never throws: a missing catalog
+ * resolves to an empty list so the form keeps its layout and the field
+ * validates as "select a product" instead of breaking.
+ */
+function useProducts() {
+    const [products, setProducts] = useState<TelemarketingProduct[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [nonce, setNonce] = useState(0);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            setIsLoading(true);
+            setError(null);
+            try {
+                const res = await fetch(PRODUCTS_URL, { cache: "no-store" });
+                const body = (await res.json().catch(() => null)) as {
+                    success: boolean;
+                    data?: TelemarketingProduct[];
+                    message?: string;
+                } | null;
+                if (!res.ok || !body?.success) throw new Error(body?.message ?? "Could not load products");
+                if (!cancelled) setProducts((body.data ?? []).filter((p) => Number(p.is_active) === 1));
+            } catch (e) {
+                if (!cancelled) {
+                    setProducts([]);
+                    setError(e instanceof Error ? e.message : "Could not load products");
+                }
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        }
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, [nonce]);
+
+    return { products, isLoading, error, retry: () => setNonce((n) => n + 1) };
+}
+
+/** Required single-select over the product catalog — Popover + Command, one product per lead. */
+function ProductCombobox({
+    controlId,
+    value,
+    onChange,
+    disabled,
+    invalid,
+    describedBy,
+}: {
+    controlId: string;
+    value: number | null;
+    onChange: (id: number) => void;
+    disabled?: boolean;
+    invalid?: boolean;
+    describedBy?: string;
+}) {
+    const { products, isLoading, error, retry } = useProducts();
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const q = query.trim().toLowerCase();
+    const filtered = q
+        ? products.filter(
+              (p) => p.name.toLowerCase().includes(q) || p.product_code.toLowerCase().includes(q),
+          )
+        : products;
+    const selected = products.find((p) => p.product_id === value) ?? null;
+    const label = selected ? selected.name : isLoading ? "Loading products…" : "Select a product";
+
+    return (
+        <>
+            <Popover
+                open={open}
+                onOpenChange={(next) => {
+                    setOpen(next);
+                    if (!next) setQuery("");
+                }}
+            >
+                <PopoverTrigger asChild>
+                    <Button
+                        id={controlId}
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={open}
+                        aria-label="Product"
+                        aria-invalid={invalid}
+                        aria-describedby={describedBy}
+                        disabled={disabled}
+                        className="h-9 w-full justify-between font-normal"
+                    >
+                        <span className="min-w-0 flex-1 truncate text-left" title={label}>
+                            {label}
+                        </span>
+                        <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command shouldFilter={false} label="Search products">
+                        <CommandInput placeholder="Search products…" value={query} onValueChange={setQuery} />
+                        <CommandList className="max-h-60">
+                            <CommandEmpty>
+                                {isLoading
+                                    ? "Loading products…"
+                                    : error
+                                      ? "Could not load products."
+                                      : "No products found."}
+                            </CommandEmpty>
+                            <CommandGroup>
+                                {filtered.map((p) => (
+                                    <CommandItem
+                                        key={p.product_id}
+                                        value={`${p.name} ${p.product_code}`}
+                                        keywords={[p.name, p.product_code]}
+                                        title={p.name}
+                                        onSelect={() => {
+                                            onChange(p.product_id);
+                                            setOpen(false);
+                                            setQuery("");
+                                        }}
+                                    >
+                                        <Check
+                                            className={cn(
+                                                "size-4 shrink-0",
+                                                p.product_id === value ? "opacity-100" : "opacity-0",
+                                            )}
+                                            aria-hidden
+                                        />
+                                        <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        </CommandList>
+                    </Command>
+                </PopoverContent>
+            </Popover>
+            {error && !isLoading ? (
+                <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <span>{error}</span>
+                    <button
+                        type="button"
+                        onClick={retry}
+                        className="rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                        Retry
+                    </button>
+                </p>
+            ) : null}
+        </>
+    );
+}
 
 export interface LeadPrefill {
     company_name?: string;
@@ -67,12 +242,12 @@ export function CreateLeadDialog({
     const [email, setEmail] = useState("");
     const [address, setAddress] = useState("");
     const [industry, setIndustry] = useState("");
-    const [productInterest, setProductInterest] = useState("");
+    const [productId, setProductId] = useState<number | null>(null);
     const [need, setNeed] = useState("");
     const [tagIds, setTagIds] = useState<number[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     // Inline, calm validation surface — set on submit, cleared as the user types.
-    const [fieldErrors, setFieldErrors] = useState<{ company?: string; contact?: string }>({});
+    const [fieldErrors, setFieldErrors] = useState<{ company?: string; contact?: string; product?: string }>({});
 
     const prefillKey = JSON.stringify(prefill);
 
@@ -85,7 +260,7 @@ export function CreateLeadDialog({
         setEmail(p?.email ?? "");
         setAddress(p?.address ?? "");
         setIndustry(p?.industry ?? "");
-        setProductInterest(p?.product_interest ?? "");
+        setProductId(null);
         setNeed(p?.need ?? "");
         setTagIds([]);
         setFieldErrors({});
@@ -98,11 +273,12 @@ export function CreateLeadDialog({
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!canSubmit) return;
-        const nextErrors: { company?: string; contact?: string } = {};
+        const nextErrors: { company?: string; contact?: string; product?: string } = {};
         if (!companyName.trim()) nextErrors.company = "Company name is required";
         if (!mobile.trim() && !email.trim()) nextErrors.contact = "Enter a mobile number or an email address";
+        if (productId === null) nextErrors.product = "Select a product";
         setFieldErrors(nextErrors);
-        if (nextErrors.company || nextErrors.contact) return;
+        if (nextErrors.company || nextErrors.contact || nextErrors.product) return;
         const tags = tagIds.filter((v) => Number.isInteger(v));
         const parsed = LeadCreateSchema.safeParse({
             source,
@@ -115,7 +291,6 @@ export function CreateLeadDialog({
             email: email.trim() || null,
             address: address.trim() || null,
             industry: industry.trim() || null,
-            product_interest: productInterest.trim() || null,
             need: need.trim() || null,
             tag_ids: tags.length ? tags : undefined,
         });
@@ -125,7 +300,9 @@ export function CreateLeadDialog({
         }
         setIsSubmitting(true);
         try {
-            const outcome = await createLead(parsed.data);
+            // product_id rides alongside the schema payload until LeadCreateSchema
+            // carries it — the provider serializes the whole object.
+            const outcome = await createLead({ ...parsed.data, product_id: productId } as LeadCreate);
             if (outcome.duplicate) {
                 toast.error("Duplicate lead", {
                     description: outcome.matched.label ? `Matches ${outcome.matched.label}` : "Already exists",
@@ -259,14 +436,25 @@ export function CreateLeadDialog({
                         />
                     </div>
                     <div className="grid gap-1.5">
-                        <Label htmlFor="lg-interest">Product interest</Label>
-                        <Input
-                            id="lg-interest"
-                            value={productInterest}
-                            onChange={(e) => setProductInterest(e.target.value)}
-                            placeholder="Product or category"
-                            maxLength={64}
+                        <Label htmlFor="lg-product">
+                            Product <span className="text-destructive">*</span>
+                        </Label>
+                        <ProductCombobox
+                            controlId="lg-product"
+                            value={productId}
+                            onChange={(id) => {
+                                setProductId(id);
+                                if (fieldErrors.product) setFieldErrors((prev) => ({ ...prev, product: undefined }));
+                            }}
+                            disabled={isSubmitting}
+                            invalid={Boolean(fieldErrors.product)}
+                            describedBy={fieldErrors.product ? "lg-product-error" : undefined}
                         />
+                        {fieldErrors.product ? (
+                            <p id="lg-product-error" role="alert" className="text-xs text-destructive">
+                                {fieldErrors.product}
+                            </p>
+                        ) : null}
                     </div>
                     <div className="grid gap-1.5">
                         <Label htmlFor="lg-need">Need</Label>

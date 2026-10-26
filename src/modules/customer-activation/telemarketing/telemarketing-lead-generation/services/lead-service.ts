@@ -140,7 +140,11 @@ function labelOf(row: Record<string, unknown>, fields: string[]): string {
     return "";
 }
 
-async function findDuplicate(email?: string | null, mobile?: string | null): Promise<DuplicateMatch | null> {
+async function findDuplicate(
+    email?: string | null,
+    mobile?: string | null,
+    productId?: number | null,
+): Promise<DuplicateMatch | null> {
     // Only plausibly-identifying contact values act as dedupe keys. When
     // NEITHER a valid email NOR a valid mobile remains, skip the lookup and
     // allow the create — never 409 an import just because the source row has
@@ -148,9 +152,17 @@ async function findDuplicate(email?: string | null, mobile?: string | null): Pro
     // Invariant: a repeat of the SAME import still 409s, because the repeat
     // carries the same valid email (e.g. cristina@gmail.com) and the email
     // branch matches the lead row created by the first import.
+    // Duplicate rule: contact match AND same product — (usable email OR
+    // usable mobile matches) AND product_id equals (null matches only null,
+    // via `_null`). The same contact with a different product is a
+    // legitimate new lead and must NOT 409.
     const mail = usableEmail(email);
     const cell = usableMobile(mobile);
     if (!mail && !cell) return null;
+    const productClause =
+        productId !== undefined && productId !== null
+            ? { product_id: { _eq: productId } }
+            : { product_id: { _null: true } };
     for (const target of DEDUPE_TARGETS) {
         const clauses: Record<string, unknown>[] = [];
         if (mail) for (const field of target.emailFields) clauses.push({ [field]: { _eq: mail } });
@@ -162,7 +174,7 @@ async function findDuplicate(email?: string | null, mobile?: string | null): Pro
         if (!clauses.length) continue;
         const body = await dFetch(
             `/items/${target.table}${qs({
-                filter: JSON.stringify({ _or: clauses }),
+                filter: JSON.stringify({ _and: [{ _or: clauses }, productClause] }),
                 fields: [target.idField, ...target.labelFields].join(","),
                 limit: "1",
             })}`,
@@ -264,7 +276,7 @@ async function telemarketingLeadHasDealerId(): Promise<boolean> {
 }
 
 export async function createLead(input: LeadCreate, userId: number | null): Promise<CreateLeadResult> {
-    const matched = await findDuplicate(input.email, input.mobile);
+    const matched = await findDuplicate(input.email, input.mobile, input.product_id ?? null);
     if (matched) return { duplicate: true, matched };
     const stageId = input.stage_id ?? (await resolveFirstActiveStage());
     if (stageId === null || stageId === undefined) {
@@ -272,7 +284,7 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
         throw new Error("INTERNAL_FAIL: No active stage available");
     }
     const now = phNow();
-    const { tag_ids, stage_id: _omitted, dealer_id: requestedDealer, ...fields } = input;
+    const { tag_ids, stage_id: _omitted, dealer_id: requestedDealer, product_id, ...fields } = input;
     void _omitted;
     const wantsProvenance = requestedDealer !== undefined && requestedDealer !== null;
     const storeDealer = wantsProvenance && (await telemarketingLeadHasDealerId());
@@ -287,6 +299,10 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
             body: JSON.stringify({
                 ...fields,
                 ...(storeDealer ? { dealer_id: requestedDealer } : {}),
+                // One product per lead; null for historical/unassigned rows.
+                // No column-detection fallback: `product_id` must be a
+                // registered Directus field or this write is rejected.
+                product_id: product_id ?? null,
                 stage_id: stageId,
                 lead_code: await nextLeadCode(),
                 // Retained for the shared database (NOT NULL column); not surfaced in this app.

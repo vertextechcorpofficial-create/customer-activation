@@ -3,23 +3,12 @@
 import { useCallback, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Boxes, Package, PackageCheck, Pencil, RefreshCw, Tags, Truck, Wallet } from "lucide-react";
+import { Boxes, Package, PackageCheck, Pencil, RefreshCw, Truck, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -186,9 +175,6 @@ export function ItemDetail({ id }: { id: number }) {
     const { detail, isLoading, error, refresh } = useAssetItem(id);
     const [unit, setUnit] = useState<"month" | "day">("month");
     const [editOpen, setEditOpen] = useState(false);
-    const [tagOpen, setTagOpen] = useState(false);
-    const [tagSelection, setTagSelection] = useState<number[]>([]);
-    const [savingTags, setSavingTags] = useState(false);
     const [groups, setGroups] = useState<AssetGroup[]>([]);
     const [catalogTags, setCatalogTags] = useState<AssetTag[]>([]);
     const [catalogsLoaded, setCatalogsLoaded] = useState(false);
@@ -214,12 +200,6 @@ export function ItemDetail({ id }: { id: number }) {
         void ensureCatalogs();
         setEditOpen(true);
     }, [ensureCatalogs]);
-
-    const openTags = useCallback(() => {
-        void ensureCatalogs();
-        setTagSelection(detail?.tags.map((t) => t.id) ?? []);
-        setTagOpen(true);
-    }, [ensureCatalogs, detail]);
 
     const handleUpdate = useCallback(
         async (itemId: number, input: UpdateAssetItemInput & { tag_ids?: number[] }): Promise<boolean> => {
@@ -262,32 +242,6 @@ export function ItemDetail({ id }: { id: number }) {
         },
         [refresh],
     );
-
-    const saveTags = useCallback(async () => {
-        if (savingTags) return;
-        setSavingTags(true);
-        try {
-            const res = await fetch(assetRegistrationRoutes.itemTags(id), {
-                method: "PUT",
-                cache: "no-store",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tag_ids: tagSelection }),
-            });
-            const body = (await res.json().catch(() => null)) as ApiEnvelope<unknown> | null;
-            if (!res.ok || !body || body.success === false) {
-                throw new Error(
-                    (body && body.success === false && body.message) || "Could not update the asset tags.",
-                );
-            }
-            toast.success("Asset tags updated");
-            setTagOpen(false);
-            await refresh();
-        } catch (err) {
-            toast.error("Failed to update tags", { description: toMessage(err) });
-        } finally {
-            setSavingTags(false);
-        }
-    }, [id, savingTags, tagSelection, refresh]);
 
     if (isLoading) {
         return (
@@ -369,10 +323,6 @@ export function ItemDetail({ id }: { id: number }) {
                             <Button variant="ghost" size="sm" onClick={openEdit}>
                                 <Pencil className="size-4" aria-hidden />
                                 Edit
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={openTags}>
-                                <Tags className="size-4" aria-hidden />
-                                Add tags
                             </Button>
                             <Button
                                 variant="ghost"
@@ -760,60 +710,6 @@ export function ItemDetail({ id }: { id: number }) {
                 onCreate={async () => false}
                 onUpdate={handleUpdate}
             />
-
-            <Dialog open={tagOpen} onOpenChange={(open) => !open && setTagOpen(false)}>
-                <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[440px]">
-                    <DialogHeader className="px-6 pt-6">
-                        <DialogTitle>Add tags</DialogTitle>
-                        <DialogDescription>
-                            Choose tags for &ldquo;{item.name}&rdquo;.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="mx-6 mt-6 grid max-h-64 gap-1 overflow-y-auto rounded-md border p-2">
-                        {catalogTags.length === 0 ? (
-                            <p className="p-2 text-sm text-muted-foreground">No active tags available.</p>
-                        ) : (
-                            catalogTags.map((tag) => {
-                                const checked = tagSelection.includes(tag.id);
-                                return (
-                                    <Label
-                                        key={tag.id}
-                                        htmlFor={`asset-detail-tag-${tag.id}`}
-                                        className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
-                                    >
-                                        <Checkbox
-                                            id={`asset-detail-tag-${tag.id}`}
-                                            checked={checked}
-                                            onCheckedChange={() =>
-                                                setTagSelection((prev) =>
-                                                    checked ? prev.filter((tagId) => tagId !== tag.id) : [...prev, tag.id],
-                                                )
-                                            }
-                                            aria-label={`Tag ${tag.tag_name}`}
-                                        />
-                                        <span
-                                            aria-hidden="true"
-                                            className="size-3 shrink-0 rounded-full border"
-                                            style={{ backgroundColor: tag.color ?? "transparent" }}
-                                        />
-                                        <span className="truncate">{tag.tag_name}</span>
-                                    </Label>
-                                );
-                            })
-                        )}
-                    </div>
-                    <DialogFooter className="mt-6 justify-end border-t bg-muted/20 px-6 py-4">
-                        <DialogClose asChild>
-                            <Button type="button" variant="outline" onClick={() => setTagOpen(false)}>
-                                Cancel
-                            </Button>
-                        </DialogClose>
-                        <Button type="button" disabled={savingTags} onClick={() => void saveTags()}>
-                            Save tags
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

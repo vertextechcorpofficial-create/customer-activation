@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -64,6 +64,47 @@ import { moveLeadStage } from "../providers/stage-provider";
 import { useBoard } from "../hooks/use-board";
 import type { LeadView, Stage } from "../types/pipeline.schema";
 import type { BoardLead } from "../services/board-service";
+
+interface TelemarketingProduct {
+  product_id: number;
+  product_code: string;
+  name: string;
+  is_active: number | boolean;
+  sort_order: number | null;
+}
+
+const PRODUCTS_URL = "/api/customer-activation/telemarketing/telemarketing-products";
+
+/**
+ * Active products for card name resolution. Never throws: a missing catalog
+ * resolves to an empty map and every card renders no product chip.
+ */
+function useProducts() {
+  const [products, setProducts] = useState<TelemarketingProduct[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(PRODUCTS_URL, { cache: "no-store" });
+        const body = (await res.json().catch(() => null)) as {
+          success: boolean;
+          data?: TelemarketingProduct[];
+        } | null;
+        if (!res.ok || !body?.success) throw new Error("Could not load products");
+        if (!cancelled) setProducts((body.data ?? []).filter((p) => Number(p.is_active) === 1));
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { products };
+}
 
 function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -174,12 +215,14 @@ function MoveMenu({
 /** Pure card visual — shared by the sortable card and the DragOverlay preview. */
 function CardVisual({
   lead,
+  productsById,
   dragHandle,
   moveControl,
   className,
   navigable = true,
 }: {
   lead: BoardLead;
+  productsById: Map<number, string>;
   dragHandle?: ReactNode;
   moveControl?: ReactNode;
   className?: string;
@@ -189,6 +232,9 @@ function CardVisual({
   // Never render a missing-person placeholder joined to a real number: the two
   // facts are separate, so the card cannot read "No contact · 0912…".
   const contactValue = lead.mobile || lead.email;
+  // An unknown or null product_id renders no chip — same for an empty catalog.
+  const productName =
+    lead.product_id == null ? null : (productsById.get(lead.product_id) ?? null);
   const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
   return (
     <article
@@ -246,12 +292,12 @@ function CardVisual({
       </dl>
 
       <div className="flex min-w-0 items-center justify-between gap-2">
-        {lead.product_interest ? (
+        {productName ? (
           <span
             className="max-w-28 truncate rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-            title={lead.product_interest}
+            title={productName}
           >
-            {lead.product_interest}
+            {productName}
           </span>
         ) : null}
         {moveControl ? <span className="relative z-10 ml-auto shrink-0">{moveControl}</span> : null}
@@ -264,12 +310,14 @@ function SortableCard({
   lead,
   stages,
   stage,
+  productsById,
   locked,
   onMoved,
 }: {
   lead: BoardLead;
   stages: Stage[];
   stage: Stage;
+  productsById: Map<number, string>;
   locked: boolean;
   onMoved: () => void;
 }) {
@@ -333,6 +381,7 @@ function SortableCard({
     <li ref={setNodeRef} style={style} className="min-w-0">
       <CardVisual
         lead={lead}
+        productsById={productsById}
         className={isDragging ? "opacity-40" : undefined}
         dragHandle={
           <button
@@ -396,6 +445,7 @@ function StageColumn({
   stages,
   leads,
   total,
+  productsById,
   lockedIds,
   isOver,
   dropHint,
@@ -405,6 +455,7 @@ function StageColumn({
   stages: Stage[];
   leads: BoardLead[];
   total: number;
+  productsById: Map<number, string>;
   lockedIds: number[];
   isOver: boolean;
   dropHint: boolean;
@@ -455,6 +506,7 @@ function StageColumn({
                 lead={lead}
                 stages={stages}
                 stage={stage}
+                productsById={productsById}
                 locked={lockedIds.includes(lead.lead_id)}
                 onMoved={onMoved}
               />
@@ -475,6 +527,11 @@ function StageColumn({
 
 export function PipelineBoard() {
   const { columns, isLoading, error, refresh } = useBoard();
+  const { products } = useProducts();
+  const productsById = useMemo(
+    () => new Map(products.map((p) => [p.product_id, p.name])),
+    [products],
+  );
   const stages = columns.map((column) => column.stage);
   const [optimistic, setOptimistic] = useState<Record<number, number>>({});
   const [inFlight, setInFlight] = useState<number[]>([]);
@@ -693,6 +750,7 @@ export function PipelineBoard() {
               stages={stages}
               leads={column.leads}
               total={column.total}
+              productsById={productsById}
               lockedIds={inFlight}
               isOver={activeDrag !== null && overStageId === column.stage.stage_id}
               dropHint={
@@ -707,7 +765,7 @@ export function PipelineBoard() {
         <DragOverlay>
           {activeLead ? (
             <div className="w-64 scale-105 opacity-95 shadow-xl">
-              <CardVisual lead={activeLead} navigable={false} />
+              <CardVisual lead={activeLead} productsById={productsById} navigable={false} />
             </div>
           ) : null}
         </DragOverlay>

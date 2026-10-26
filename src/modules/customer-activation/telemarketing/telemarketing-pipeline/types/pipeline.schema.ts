@@ -95,6 +95,8 @@ export const LeadViewSchema = z.object({
   stage_id: z.number().int(),
   validation_status: z.enum(VALIDATION_STATUSES),
   product_interest: z.string().max(64).nullable().optional(),
+  /** One product per lead. Null on historical rows. */
+  product_id: z.number().int().positive().nullable().optional(),
   converted_customer_id: z.number().int().nullable().optional(),
   converted_at: z.string().nullable().optional(),
   last_activity_at: z.string().nullable().optional(),
@@ -126,6 +128,8 @@ export const LeadRecordSchema = z.object({
   industry: z.string().max(128).nullable().optional(),
   product_interest: z.string().max(64).nullable().optional(),
   need: z.string().nullable().optional(),
+  /** One product per lead. Null on historical rows. */
+  product_id: z.number().int().positive().nullable().optional(),
   stage_id: z.number().int(),
   validation_status: z.enum(VALIDATION_STATUSES),
   next_follow_up_at: z.string().nullable().optional(),
