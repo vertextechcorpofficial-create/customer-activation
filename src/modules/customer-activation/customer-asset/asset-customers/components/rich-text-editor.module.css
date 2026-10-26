@@ -1,0 +1,68 @@
+/* Module-scoped Quill Snow overrides: keep the editor legible in both
+   themes without touching globals.css. Quill paints its own white
+   surfaces, so dark mode re-skins toolbar, container, and editor. */
+
+.host :global(.ql-toolbar.ql-snow) {
+    border: 0;
+    border-bottom: 1px solid hsl(var(--border));
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+    background-color: hsl(var(--muted));
+}
+
+/* Pin toolbar icon sizing: Snow v2 sizes icons via `height: 100%` with no
+   explicit width, so any reset that perturbs button/svg height collapses
+   the icons to thin dashes. Scoped under `.host`, this outranks Snow's
+   own selectors without `!important`. */
+.host :global(.ql-snow.ql-toolbar button),
+.host :global(.ql-snow .ql-toolbar button) {
+    width: 28px;
+    height: 24px;
+    padding: 3px 5px;
+}
+
+.host :global(.ql-snow.ql-toolbar button svg),
+.host :global(.ql-snow .ql-toolbar button svg) {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+.host :global(.ql-container.ql-snow) {
+    border: 0;
+    border-bottom-left-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+}
+
+.host :global(.ql-editor) {
+    min-height: 100px;
+}
+
+.host :global(.ql-editor.ql-blank::before) {
+    color: hsl(var(--muted-foreground));
+    font-style: normal;
+}
+
+.host :global(.ql-snow .ql-stroke) {
+    stroke: hsl(var(--muted-foreground));
+}
+
+.host :global(.ql-snow .ql-fill) {
+    fill: hsl(var(--muted-foreground));
+}
+
+.host :global(.ql-snow .ql-picker-label) {
+    color: hsl(var(--muted-foreground));
+}
+
+.host :global(.ql-snow.ql-toolbar button:hover .ql-stroke),
+.host :global(.ql-snow.ql-toolbar button.ql-active .ql-stroke) {
+    stroke: hsl(var(--primary));
+}
+
+.host :global(.ql-snow a) {
+    color: hsl(var(--primary));
+}

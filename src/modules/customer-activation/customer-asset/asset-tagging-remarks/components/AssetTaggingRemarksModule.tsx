@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontal, Plus, X } from "lucide-react";
+import { MoreHorizontal, Package, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
+    DialogClose,
     DialogContent,
     DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
@@ -32,6 +34,7 @@ import { AssetTaggingRemarksListShell } from "./AssetTaggingRemarksListShell";
 import { AssignAssetDialog } from "./AssignAssetDialog";
 import { ReturnAssetDialog } from "./ReturnAssetDialog";
 import { useAssignments } from "../hooks/useAssignments";
+import { formatTaggingDateTime } from "../utils/datetime";
 import type { AssignmentView } from "../types/asset-tagging-remarks.view";
 
 type StatusFilter = "all" | AssignmentView["assignment_status"] | "overdue";
@@ -57,6 +60,21 @@ function statusLabel(status: AssignmentView["assignment_status"]): string {
     return status;
 }
 
+const humanFormatter = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+});
+
+function formatHuman(value: string | null | undefined): string {
+    if (!value) return "—";
+    const parsed = new Date(value.replace(" ", "T")).getTime();
+    if (!Number.isFinite(parsed)) return "—";
+    return humanFormatter.format(new Date(parsed));
+}
+
 function TagDots({ tags }: { tags: AssignmentView["tags"] }) {
     if (tags.length === 0) return null;
     const shown = tags.slice(0, 3);
@@ -79,13 +97,8 @@ function TagDots({ tags }: { tags: AssignmentView["tags"] }) {
     );
 }
 
-function formatDate(value: string | null): string {
-    if (!value) return "—";
-    return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
-}
-
 export function AssetTaggingRemarksModule() {
-    const { assignments, items, isLoading, error, refresh, searchCustomers, assign, returnItems } =
+    const { assignments, items, isLoading, error, refresh, listAllCustomers, assign, returnItems } =
         useAssignments();
     const [assignOpen, setAssignOpen] = useState(false);
     const [returnTarget, setReturnTarget] = useState<AssignmentView | null>(null);
@@ -213,7 +226,9 @@ export function AssetTaggingRemarksModule() {
         },
         {
             accessorKey: "quantity",
-            header: "Qty",
+            // Right-aligned to match the `.td-num` cell below. The shared
+            // TableHead/TableCell both use px-2, so no extra padding here.
+            header: () => <span className="block text-right">Qty</span>,
             cell: ({ row }) => (
                 <span className="block td-num">
                     {row.original.returned_quantity}/{row.original.quantity}
@@ -237,8 +252,11 @@ export function AssetTaggingRemarksModule() {
             accessorKey: "tagged_at",
             header: "Tagged",
             cell: ({ row }) => (
-                <span className="block truncate tabular-nums text-sm text-muted-foreground">
-                    {formatDate(row.original.tagged_at)}
+                <span
+                    className="block truncate tabular-nums text-sm text-muted-foreground"
+                    title={row.original.tagged_at}
+                >
+                    {formatTaggingDateTime(row.original.tagged_at)}
                 </span>
             ),
         },
@@ -246,8 +264,11 @@ export function AssetTaggingRemarksModule() {
             accessorKey: "expected_return_at",
             header: "Expected return",
             cell: ({ row }) => (
-                <span className="block truncate tabular-nums text-sm text-muted-foreground">
-                    {formatDate(row.original.expected_return_at)}
+                <span
+                    className="block truncate tabular-nums text-sm text-muted-foreground"
+                    title={row.original.expected_return_at ?? ""}
+                >
+                    {formatTaggingDateTime(row.original.expected_return_at)}
                 </span>
             ),
         },
@@ -410,11 +431,21 @@ export function AssetTaggingRemarksModule() {
                                             </div>
                                             <div className="min-w-0 rounded-md border px-2 py-1.5">
                                                 <dt className="text-muted-foreground">Tagged</dt>
-                                                <dd className="truncate font-medium tabular-nums">{formatDate(a.tagged_at)}</dd>
+                                                <dd
+                                                    className="truncate font-medium tabular-nums"
+                                                    title={a.tagged_at}
+                                                >
+                                                    {formatTaggingDateTime(a.tagged_at)}
+                                                </dd>
                                             </div>
                                             <div className="min-w-0 rounded-md border px-2 py-1.5">
                                                 <dt className="text-muted-foreground">Expected</dt>
-                                                <dd className="truncate font-medium tabular-nums">{formatDate(a.expected_return_at)}</dd>
+                                                <dd
+                                                    className="truncate font-medium tabular-nums"
+                                                    title={a.expected_return_at ?? ""}
+                                                >
+                                                    {formatTaggingDateTime(a.expected_return_at)}
+                                                </dd>
                                             </div>
                                         </dl>
                                         <div className="flex gap-2">
@@ -449,7 +480,7 @@ export function AssetTaggingRemarksModule() {
                 open={assignOpen}
                 onOpenChange={setAssignOpen}
                 items={items}
-                onSearchCustomers={searchCustomers}
+                onLoadAllCustomers={listAllCustomers}
                 onAssign={assign}
             />
 
@@ -463,29 +494,143 @@ export function AssetTaggingRemarksModule() {
             <Dialog open={remarksTarget !== null} onOpenChange={(open) => !open && setRemarksTarget(null)}>
                 <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[480px]">
                     <DialogHeader className="px-6 pt-6">
-                        <DialogTitle>Remarks</DialogTitle>
-                        <DialogDescription>
-                            {remarksTarget
-                                ? `${remarksTarget.item_name} → ${remarksTarget.customer_name}`
-                                : ""}
-                        </DialogDescription>
+                        <div className="flex items-start gap-3">
+                            <span
+                                aria-hidden
+                                className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+                            >
+                                <Package className="size-5" />
+                            </span>
+                            <div className="min-w-0">
+                                <DialogTitle className="truncate" title={remarksTarget?.item_name ?? "Remarks"}>
+                                    {remarksTarget?.item_name ?? "Remarks"}
+                                </DialogTitle>
+                                <DialogDescription className="truncate">
+                                    {remarksTarget
+                                        ? `${remarksTarget.item_code} · ${remarksTarget.customer_name}`
+                                        : ""}
+                                </DialogDescription>
+                            </div>
+                        </div>
                     </DialogHeader>
-                    <div className="grid gap-3 px-6 py-6 text-sm">
-                        <div className="grid gap-1">
-                            <p className="font-medium">Tagging remarks</p>
-                            <p className="max-h-[160px] overflow-y-auto break-words text-muted-foreground">{remarksTarget?.remarks || "—"}</p>
-                            {remarksTarget?.condition_out ? (
-                                <p className="text-muted-foreground">Condition out: {remarksTarget.condition_out}</p>
-                            ) : null}
-                        </div>
-                        <div className="grid gap-1">
-                            <p className="font-medium">Return remarks</p>
-                            <p className="max-h-[160px] overflow-y-auto break-words text-muted-foreground">{remarksTarget?.return_remarks || "—"}</p>
-                            {remarksTarget?.condition_in ? (
-                                <p className="text-muted-foreground">Condition in: {remarksTarget.condition_in}</p>
-                            ) : null}
-                        </div>
-                    </div>
+                    {remarksTarget ? (
+                        <>
+                            <div className="max-h-[70dvh] overflow-y-auto px-6 py-6">
+                                <div className="grid gap-4">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <StatusPill tone={statusTone(remarksTarget.assignment_status)} className="shrink-0">
+                                            {statusLabel(remarksTarget.assignment_status)}
+                                        </StatusPill>
+                                        {remarksTarget.overdue ? (
+                                            <StatusPill tone="destructive" className="shrink-0">
+                                                Overdue
+                                            </StatusPill>
+                                        ) : null}
+                                    </div>
+                                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Quantity
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {remarksTarget.quantity}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Returned
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {remarksTarget.returned_quantity}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Remaining
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {remarksTarget.remaining}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Expected return
+                                            </dt>
+                                            <dd
+                                                className={`mt-0.5 text-sm font-semibold tabular-nums ${remarksTarget.overdue ? "text-rose-700 dark:text-rose-300" : ""}`}
+                                                title={remarksTarget.expected_return_at ?? ""}
+                                            >
+                                                {formatHuman(remarksTarget.expected_return_at)}
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                    <p className="text-xs text-muted-foreground">
+                                        Tagged {formatHuman(remarksTarget.tagged_at)}
+                                        {remarksTarget.closed_at
+                                            ? ` · Closed ${formatHuman(remarksTarget.closed_at)}`
+                                            : ""}
+                                    </p>
+                                    <div className="grid gap-4">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                Tagging remarks
+                                            </p>
+                                            {remarksTarget.remarks ? (
+                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                                                    {remarksTarget.remarks}
+                                                </p>
+                                            ) : (
+                                                <p className="mt-1 text-sm text-muted-foreground">No remarks</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                Return remarks
+                                            </p>
+                                            {remarksTarget.return_remarks ? (
+                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                                                    {remarksTarget.return_remarks}
+                                                </p>
+                                            ) : (
+                                                <p className="mt-1 text-sm text-muted-foreground">No return remarks</p>
+                                            )}
+                                        </div>
+                                        {remarksTarget.condition_out || remarksTarget.condition_in ? (
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {remarksTarget.condition_out ? (
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                            Condition out
+                                                        </p>
+                                                        <p className="mt-1 break-words text-sm">
+                                                            {remarksTarget.condition_out}
+                                                        </p>
+                                                    </div>
+                                                ) : null}
+                                                {remarksTarget.condition_in ? (
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                            Condition in
+                                                        </p>
+                                                        <p className="mt-1 break-words text-sm">
+                                                            {remarksTarget.condition_in}
+                                                        </p>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </div>
+                            <DialogFooter className="justify-end border-t bg-muted/20 px-6 py-4">
+                                <DialogClose asChild>
+                                    <Button type="button" variant="outline">
+                                        Close
+                                    </Button>
+                                </DialogClose>
+                            </DialogFooter>
+                        </>
+                    ) : null}
                 </DialogContent>
             </Dialog>
         </div>

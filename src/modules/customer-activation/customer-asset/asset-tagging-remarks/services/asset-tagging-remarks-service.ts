@@ -255,6 +255,50 @@ export async function searchCustomers(query: string): Promise<CustomerOption[]> 
     }));
 }
 
+// Module-scope cache for the full active-customer list (~3,362 rows): every
+// dialog open reuses it for 60s instead of re-downloading. 60s staleness is
+// acceptable for a picker, so entries are never invalidated. Errors are never
+// cached; concurrent opens share the in-flight promise.
+const ALL_CUSTOMERS_TTL_MS = 60_000;
+let allCustomersCache: { at: number; value: CustomerOption[] } | null = null;
+let allCustomersInflight: { at: number; promise: Promise<CustomerOption[]> } | null = null;
+
+export async function listAllCustomers(): Promise<CustomerOption[]> {
+    const now = Date.now();
+    if (allCustomersCache && now - allCustomersCache.at < ALL_CUSTOMERS_TTL_MS) {
+        return allCustomersCache.value;
+    }
+    if (allCustomersInflight && now - allCustomersInflight.at < ALL_CUSTOMERS_TTL_MS) {
+        return allCustomersInflight.promise;
+    }
+    let resolveInflight!: (value: CustomerOption[]) => void;
+    let rejectInflight!: (err: unknown) => void;
+    const promise = new Promise<CustomerOption[]>((resolve, reject) => {
+        resolveInflight = resolve;
+        rejectInflight = reject;
+    });
+    allCustomersInflight = { at: now, promise };
+    try {
+        const rows = await directusGet<CustomerRow>(
+            `${CUSTOMER}?limit=-1&sort=customer_name&filter[isActive][_eq]=1&fields=id,customer_code,customer_name,isActive`,
+        );
+        const value = rows.map((r) => ({
+            id: r.id,
+            customer_code: r.customer_code ?? null,
+            customer_name: r.customer_name,
+        }));
+        allCustomersCache = { at: Date.now(), value };
+        resolveInflight(value);
+        return value;
+    } catch (err) {
+        // Never cache errors — the next open retries.
+        rejectInflight(err);
+        throw err;
+    } finally {
+        if (allCustomersInflight?.promise === promise) allCustomersInflight = null;
+    }
+}
+
 export async function listAvailableItems(): Promise<AvailableItem[]> {
     const items = await directusGet<AssetItemRow>(`${ITEM}?limit=-1&filter[is_retired][_eq]=0`);
     const active = items.filter((i) => !isRetired(i.is_retired));

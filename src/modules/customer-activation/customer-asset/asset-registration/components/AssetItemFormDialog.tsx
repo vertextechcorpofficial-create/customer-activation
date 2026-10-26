@@ -1,11 +1,22 @@
 "use client";
 
+import * as React from "react";
 import { useEffect } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { z } from "zod";
 import {
     Dialog,
@@ -18,13 +29,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -35,6 +39,8 @@ import {
 } from "../types/asset-registration.schema";
 import type { EnrichedAssetItem } from "../services/asset-registration-service";
 import type { AssetItemFormValues } from "../hooks/useAssetItems";
+import { DatePickerField } from "./DatePickerField";
+import { TagsMultiSelect } from "./TagsMultiSelect";
 
 interface AssetItemFormDialogProps {
     open: boolean;
@@ -54,18 +60,141 @@ const AssetItemFormSchema = CreateAssetItemSchema.extend({
 });
 type FormValues = z.infer<typeof AssetItemFormSchema>;
 
+// Local date parts only — toISOString() is UTC and renders yesterday during 00:00–08:00 PH.
+function todayLocal(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const EMPTY: FormValues = {
     name: "",
     category: "",
     quantity: 1,
     cost_per_item: 0,
     life_span_months: 12,
-    date_acquired: new Date().toISOString().slice(0, 10),
+    date_acquired: todayLocal(),
     serial: "",
     group_id: null,
     remarks: "",
     tag_ids: [],
 };
+
+// Module-local group picker. The shared SearchableSelect exposes no id, so a
+// `<Label htmlFor>` can never associate with it — the trigger carries its
+// accessible name itself. The popover is portaled so it escapes the dialog's
+// overflow; the DialogContent dismissal guard below keeps the dialog open
+// while the popover is interacted with.
+function GroupCombobox({
+    groups,
+    value,
+    onChange,
+}: {
+    groups: AssetGroup[];
+    value: number | null;
+    onChange: (value: number | null) => void;
+}) {
+    const [open, setOpen] = React.useState(false);
+    const [search, setSearch] = React.useState("");
+    const selected = groups.find((g) => g.id === value) ?? null;
+    const matches = React.useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return groups;
+        return groups.filter(
+            (g) =>
+                g.group_name.toLowerCase().includes(q) ||
+                g.group_code.toLowerCase().includes(q),
+        );
+    }, [groups, search]);
+    const label = selected ? `${selected.group_code} · ${selected.group_name}` : "No group";
+
+    return (
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                setOpen(next);
+                if (!next) setSearch("");
+            }}
+        >
+            <PopoverTrigger asChild>
+                <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    aria-label="Group"
+                    className={cn(
+                        "w-full justify-between gap-2 font-normal",
+                        value == null && "text-muted-foreground",
+                    )}
+                >
+                    <span className="truncate">{label}</span>
+                    <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden="true" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent
+                className="z-[9999] w-[min(360px,calc(100vw-2rem))] p-0"
+                align="start"
+                sideOffset={4}
+                collisionPadding={12}
+            >
+                <Command shouldFilter={false}>
+                    <CommandInput
+                        placeholder="Search groups..."
+                        value={search}
+                        onValueChange={setSearch}
+                    />
+                    <CommandList>
+                        <CommandEmpty>No groups found.</CommandEmpty>
+                        <CommandGroup>
+                            <CommandItem
+                                value="none"
+                                onSelect={() => {
+                                    onChange(null);
+                                    setSearch("");
+                                    setOpen(false);
+                                }}
+                            >
+                                <Check
+                                    aria-hidden="true"
+                                    className={cn(
+                                        "size-4 shrink-0",
+                                        value == null ? "opacity-100" : "opacity-0",
+                                    )}
+                                />
+                                <span className="truncate">No group</span>
+                            </CommandItem>
+                            {matches.map((g) => {
+                                const checked = value === g.id;
+                                return (
+                                    <CommandItem
+                                        key={g.id}
+                                        value={`${g.group_code} ${g.group_name}`}
+                                        onSelect={() => {
+                                            onChange(g.id);
+                                            setSearch("");
+                                            setOpen(false);
+                                        }}
+                                    >
+                                        <Check
+                                            aria-hidden="true"
+                                            className={cn(
+                                                "size-4 shrink-0",
+                                                checked ? "opacity-100" : "opacity-0",
+                                            )}
+                                        />
+                                        <span className="truncate">
+                                            {g.group_code} · {g.group_name}
+                                        </span>
+                                    </CommandItem>
+                                );
+                            })}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 export function AssetItemFormDialog({
     open,
@@ -147,8 +276,18 @@ export function AssetItemFormDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] w-[95vw] gap-0 overflow-y-auto rounded-2xl p-0 sm:max-w-[560px]">
-                <DialogHeader className="px-6 pt-6">
+            <DialogContent
+                className="flex max-h-[90dvh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[560px]"
+                onPointerDownOutside={(e) => {
+                    const t = e.target as HTMLElement | null;
+                    if (t?.closest('[data-slot="popover-content"]')) e.preventDefault();
+                }}
+                onFocusOutside={(e) => {
+                    const t = e.target as HTMLElement | null;
+                    if (t?.closest('[data-slot="popover-content"]')) e.preventDefault();
+                }}
+            >
+                <DialogHeader className="shrink-0 px-6 pt-6">
                     <DialogTitle>{editing ? "Edit asset" : "New asset"}</DialogTitle>
                     <DialogDescription>
                         {editing
@@ -156,7 +295,11 @@ export function AssetItemFormDialog({
                             : "Register a new asset into the inventory. A serial is required when registering a single unit."}
                     </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 px-6 py-6">
+                <form
+                    onSubmit={handleSubmit(onSubmit)}
+                    className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                >
+                    <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 py-6">
                     <div className="grid gap-2">
                         <Label htmlFor="asset-name">Name</Label>
                         <Input
@@ -179,29 +322,16 @@ export function AssetItemFormDialog({
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="asset-group">Group</Label>
+                            <Label>Group</Label>
                             <Controller
                                 name="group_id"
                                 control={control}
                                 render={({ field }) => (
-                                    <Select
-                                        value={field.value == null ? "none" : String(field.value)}
-                                        onValueChange={(v) =>
-                                            field.onChange(v === "none" ? null : Number(v))
-                                        }
-                                    >
-                                        <SelectTrigger id="asset-group" onBlur={field.onBlur}>
-                                            <SelectValue placeholder="No group" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">No group</SelectItem>
-                                            {groups.map((g) => (
-                                                <SelectItem key={g.id} value={String(g.id)}>
-                                                    {g.group_name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <GroupCombobox
+                                        groups={groups}
+                                        value={field.value ?? null}
+                                        onChange={field.onChange}
+                                    />
                                 )}
                             />
                         </div>
@@ -254,12 +384,16 @@ export function AssetItemFormDialog({
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="asset-acquired">Acquired</Label>
-                            <Input
-                                id="asset-acquired"
-                                type="date"
-                                {...register("date_acquired")}
-                                className="tabular-nums"
-                                aria-invalid={Boolean(errors.date_acquired)}
+                            <Controller
+                                name="date_acquired"
+                                control={control}
+                                render={({ field }) => (
+                                    <DatePickerField
+                                        id="asset-acquired"
+                                        value={field.value}
+                                        onChange={field.onChange}
+                                    />
+                                )}
                             />
                             {errors.date_acquired ? (
                                 <p className="text-xs text-destructive">{errors.date_acquired.message}</p>
@@ -295,46 +429,17 @@ export function AssetItemFormDialog({
                         {tags.length === 0 ? (
                             <p className="text-xs text-muted-foreground">No active tags to pick from.</p>
                         ) : (
-                            <div className="grid max-h-36 gap-1 overflow-y-auto rounded-md border p-2">
-                                <Controller
-                                    name="tag_ids"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <>
-                                            {tags.map((tag) => {
-                                                const selected = field.value ?? [];
-                                                const checked = selected.includes(tag.id);
-                                                return (
-                                                    <Label
-                                                        key={tag.id}
-                                                        htmlFor={`asset-tag-${tag.id}`}
-                                                        className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
-                                                    >
-                                                        <Checkbox
-                                                            id={`asset-tag-${tag.id}`}
-                                                            checked={checked}
-                                                            onCheckedChange={() =>
-                                                                field.onChange(
-                                                                    checked
-                                                                        ? selected.filter((id: number) => id !== tag.id)
-                                                                        : [...selected, tag.id],
-                                                                )
-                                                            }
-                                                            aria-label={`Tag ${tag.tag_name}`}
-                                                        />
-                                                        <span
-                                                            aria-hidden="true"
-                                                            className="size-3 shrink-0 rounded-full border"
-                                                            style={{ backgroundColor: tag.color ?? "transparent" }}
-                                                        />
-                                                        <span className="truncate">{tag.tag_name}</span>
-                                                    </Label>
-                                                );
-                                            })}
-                                        </>
-                                    )}
-                                />
-                            </div>
+                            <Controller
+                                name="tag_ids"
+                                control={control}
+                                render={({ field }) => (
+                                    <TagsMultiSelect
+                                        tags={tags}
+                                        value={field.value ?? []}
+                                        onChange={field.onChange}
+                                    />
+                                )}
+                            />
                         )}
                     </fieldset>
                     {editing ? (
@@ -358,7 +463,8 @@ export function AssetItemFormDialog({
                             )}
                         />
                     ) : null}
-                    <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                    </div>
+                    <DialogFooter className="shrink-0 justify-end border-t bg-muted/20 px-6 py-4">
                         <DialogClose asChild>
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                                 Cancel

@@ -1,12 +1,15 @@
 // Server-only: owns every Directus read/write for asset-customers.
 // READ-ONLY on `customer` — this module never POSTs/PATCHes/DELETEs it.
-import type { Note } from "../types/asset-customers.schema";
+import sanitizeHtml from "sanitize-html";
+import type { Note, NoteWithPreview } from "../types/asset-customers.schema";
 
 const DIRECTUS_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN ?? "";
 const CUSTOMER_COLLECTION = "customer";
 const TAGGING_COLLECTION = "customer_asset_tagging";
 const ITEM_COLLECTION = "customer_asset_item";
+const ITEM_TAG_COLLECTION = "customer_asset_item_tag";
+const TAG_COLLECTION = "customer_asset_tag";
 const NOTE_COLLECTION = "customer_asset_note";
 
 interface DirectusEnvelope<T> {
@@ -224,6 +227,12 @@ export async function listCustomers(options?: {
     return { rows, total };
 }
 
+export interface HoldingTag {
+    id: number;
+    tag_name: string;
+    color: string | null;
+}
+
 export interface Holding {
     taggingId: number;
     itemCode: string;
@@ -234,6 +243,7 @@ export interface Holding {
     status: string;
     expectedReturnAt: string | null;
     taggedAt: string | null;
+    tags: HoldingTag[];
 }
 
 export interface AssignmentRecord extends Holding {
@@ -248,7 +258,7 @@ export interface CustomerDetail {
     customer: { id: number; customer_code: string; customer_name: string; isActive: boolean };
     holdings: Holding[];
     history: AssignmentRecord[];
-    notes: Note[];
+    notes: NoteWithPreview[];
     assetsHeld: number;
     openAssignments: number;
 }
@@ -298,11 +308,29 @@ export async function getCustomer(id: number): Promise<CustomerDetail | null> {
 
     const itemIds = [...new Set(taggings.map((t) => t.item_id).filter((v): v is number => typeof v === "number" && Number.isFinite(v)))];
     const itemMap = new Map<number, { item_code: string; name: string }>();
+    const tagsByItem = new Map<number, HoldingTag[]>();
     if (itemIds.length > 0) {
-        const itemsBody = await directus<Array<{ id: number; item_code: string; name: string }>>(
-            `/items/${ITEM_COLLECTION}?limit=-1&filter[id][_in]=${itemIds.join(",")}&fields=id,item_code,name`,
-        );
+        const filterIn = itemIds.join(",");
+        const [itemsBody, itemTagBody, tagBody] = await Promise.all([
+            directus<Array<{ id: number; item_code: string; name: string }>>(
+                `/items/${ITEM_COLLECTION}?limit=-1&filter[id][_in]=${filterIn}&fields=id,item_code,name`,
+            ),
+            directus<Array<{ item_id: number; tag_id: number }>>(
+                `/items/${ITEM_TAG_COLLECTION}?limit=-1&filter[item_id][_in]=${filterIn}&fields=item_id,tag_id`,
+            ),
+            directus<Array<{ id: number; tag_name: string; color: string | null }>>(
+                `/items/${TAG_COLLECTION}?limit=-1&sort=tag_name&fields=id,tag_name,color`,
+            ),
+        ]);
         for (const item of itemsBody.data ?? []) itemMap.set(item.id, item);
+        const tagById = new Map((tagBody.data ?? []).map((t) => [t.id, t]));
+        for (const row of itemTagBody.data ?? []) {
+            const tag = tagById.get(row.tag_id);
+            if (!tag) continue;
+            const list = tagsByItem.get(row.item_id) ?? [];
+            list.push({ id: tag.id, tag_name: tag.tag_name, color: tag.color ?? null });
+            tagsByItem.set(row.item_id, list);
+        }
     }
 
     const toRecord = (t: TaggingRow): AssignmentRecord => {
@@ -319,6 +347,7 @@ export async function getCustomer(id: number): Promise<CustomerDetail | null> {
             status: t.assignment_status,
             expectedReturnAt: t.expected_return_at,
             taggedAt: t.tagged_at,
+            tags: t.item_id != null ? (tagsByItem.get(t.item_id) ?? []) : [],
             closedAt: t.closed_at,
             remarks: t.remarks,
             returnRemarks: t.return_remarks,
@@ -345,20 +374,61 @@ export async function getCustomer(id: number): Promise<CustomerDetail | null> {
     };
 }
 
-export async function listNotes(customerId: number): Promise<Note[]> {
+const NOTE_HTML: sanitizeHtml.IOptions = {
+    allowedTags: ["p", "br", "strong", "b", "em", "i", "u", "s", "ol", "ul", "li", "a"],
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowProtocolRelative: false,
+    // Keep `target` so editor links still open in a new tab, but force safe rel.
+    transformTags: {
+        a: (tagName, attribs) => ({
+            tagName,
+            attribs:
+                attribs.target === "_blank"
+                    ? { ...attribs, rel: "noopener noreferrer" }
+                    : attribs,
+        }),
+    },
+};
+
+const PREVIEW_LENGTH = 240;
+
+// Strip every tag, collapse whitespace, truncate — derived, never stored.
+function toPreview(html: string): string {
+    const text = sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} })
+        .replace(/\s+/g, " ")
+        .trim();
+    return text.length > PREVIEW_LENGTH ? `${text.slice(0, PREVIEW_LENGTH).trimEnd()}…` : text;
+}
+
+// Sanitise one stored note body and attach its preview.
+function withPreview(note: Note): NoteWithPreview {
+    const body = sanitizeHtml(note.body, { ...NOTE_HTML });
+    return { ...note, body, preview: toPreview(body) };
+}
+
+export async function listNotes(customerId: number): Promise<NoteWithPreview[]> {
     const body = await directus<Note[]>(
         `/items/${NOTE_COLLECTION}?limit=-1&sort=-created_at&filter[customer_id][_eq]=${customerId}&fields=id,customer_id,body,created_by,created_at,updated_by,updated_at`,
     );
-    return body.data ?? [];
+    return (body.data ?? []).map(withPreview);
 }
 
-export async function createNote(customerId: number, body: string, actorId: number | null): Promise<Note> {
+export async function getNote(id: number): Promise<NoteWithPreview | null> {
+    const body = await directus<Note>(
+        `/items/${NOTE_COLLECTION}/${id}?fields=id,customer_id,body,created_by,created_at,updated_by,updated_at`,
+    ).catch(() => null);
+    if (!body?.data) return null;
+    return withPreview(body.data);
+}
+
+export async function createNote(customerId: number, body: string, actorId: number | null): Promise<NoteWithPreview> {
     const now = phNow();
     const res = await directus<Note>(`/items/${NOTE_COLLECTION}`, {
         method: "POST",
         body: JSON.stringify({
             customer_id: customerId,
-            body: body.trim(),
+            body: sanitizeHtml(body.trim(), { ...NOTE_HTML }),
             created_by: actorId,
             created_at: now,
             updated_by: actorId,
@@ -366,16 +436,20 @@ export async function createNote(customerId: number, body: string, actorId: numb
         }),
     });
     if (!res.data) throw new Error("Note was not created");
-    return res.data;
+    return withPreview(res.data);
 }
 
-export async function updateNote(id: number, body: string, actorId: number | null): Promise<Note> {
+export async function updateNote(id: number, body: string, actorId: number | null): Promise<NoteWithPreview> {
     const res = await directus<Note>(`/items/${NOTE_COLLECTION}/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ body: body.trim(), updated_by: actorId, updated_at: phNow() }),
+        body: JSON.stringify({
+            body: sanitizeHtml(body.trim(), { ...NOTE_HTML }),
+            updated_by: actorId,
+            updated_at: phNow(),
+        }),
     });
     if (!res.data) throw new Error("Note was not updated");
-    return res.data;
+    return withPreview(res.data);
 }
 
 export async function deleteNote(id: number): Promise<void> {

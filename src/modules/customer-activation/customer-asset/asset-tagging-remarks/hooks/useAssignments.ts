@@ -88,6 +88,10 @@ export function useAssignments(customerId: number | null = null) {
         }
     }, []);
 
+    const listAllCustomers = useCallback(async (): Promise<CustomerOption[]> => {
+        return await request<CustomerOption[]>(`${assetTaggingRemarksRoutes.customers}?all=1`);
+    }, []);
+
     const assign = useCallback(
         async (input: CreateTaggingInput): Promise<boolean> => {
             try {
@@ -124,5 +128,5 @@ export function useAssignments(customerId: number | null = null) {
         [sync],
     );
 
-    return { assignments, items, isLoading, error, refresh, searchCustomers, assign, returnItems };
+    return { assignments, items, isLoading, error, refresh, searchCustomers, listAllCustomers, assign, returnItems };
 }

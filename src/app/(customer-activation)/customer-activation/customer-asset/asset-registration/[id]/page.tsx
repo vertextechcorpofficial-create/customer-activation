@@ -14,6 +14,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 import { COOKIE_NAME, decodeJwtPayload } from "@/lib/auth-utils";
 import { ItemDetail } from "@/modules/customer-activation/customer-asset/asset-registration/components/ItemDetail";
+import { getItemHeader } from "@/modules/customer-activation/customer-asset/asset-registration/services/asset-registration-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,13 @@ export const metadata: Metadata = {
 };
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
-    const cookieStore = await cookies();
+    const { id: raw } = await params;
+    const id = Number(raw);
+
+    const [cookieStore, header] = await Promise.all([
+        cookies(),
+        (Number.isInteger(id) && id > 0 ? getItemHeader(id) : Promise.resolve(null)).catch(() => null),
+    ]);
     const token = cookieStore.get(COOKIE_NAME)?.value ?? null;
     const payload = token ? decodeJwtPayload(token) : null;
 
@@ -37,9 +44,6 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         email: typeof payload?.email === "string" ? payload.email : "",
         avatar: "/avatars/shadcn.jpg",
     };
-
-    const { id: raw } = await params;
-    const id = Number(raw);
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -68,8 +72,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                                 </BreadcrumbItem>
                                 <BreadcrumbSeparator className="hidden md:block shrink-0" />
                                 <BreadcrumbItem className="min-w-0 overflow-hidden">
-                                    <BreadcrumbPage className="truncate max-w-[56vw] sm:max-w-[60vw] md:max-w-none tabular-nums">
-                                        Asset #{Number.isInteger(id) ? id : raw}
+                                    <BreadcrumbPage className="truncate max-w-[56vw] sm:max-w-[60vw] md:max-w-none" title={header?.name ?? "Asset details"}>
+                                        {header?.name ?? "Asset details"}
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>
@@ -82,7 +86,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                 </div>
             </header>
 
-            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4">
+            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-muted/40 p-2 sm:p-4 dark:bg-background">
                 {Number.isInteger(id) && id > 0 ? (
                     <ItemDetail id={id} />
                 ) : (

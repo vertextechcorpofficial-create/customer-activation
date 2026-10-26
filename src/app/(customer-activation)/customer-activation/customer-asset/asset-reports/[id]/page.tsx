@@ -90,7 +90,7 @@ export default async function Page({ params }: PageProps) {
                 </div>
             </header>
 
-            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4">
+            <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-muted/40 p-2 sm:p-4 dark:bg-background">
                 <AssetReportDetail id={id} />
             </main>
         </div>
