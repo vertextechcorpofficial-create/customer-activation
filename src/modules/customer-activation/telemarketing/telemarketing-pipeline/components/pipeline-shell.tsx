@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 
-export type PipelineActiveTab = "board" | "pool" | "leads" | "settings";
+export type PipelineActiveTab = "board" | "pool" | "settings";
 
 export type PipelineShellUser = {
   name: string;
@@ -21,19 +21,17 @@ export type PipelineShellUser = {
 export type PipelineShellProps = {
   user: PipelineShellUser;
   crumb: string;
-  active: PipelineActiveTab;
+  active?: PipelineActiveTab;
   children: ReactNode;
 };
 
 const BOARD_HREF = "/customer-activation/telemarketing/telemarketing-pipeline";
 const POOL_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/pool";
-const LEADS_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/leads";
 const SETTINGS_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/settings";
 
 const TABS: Array<{ key: PipelineActiveTab; label: string; href: string }> = [
   { key: "board", label: "Board", href: BOARD_HREF },
   { key: "pool", label: "Pool", href: POOL_HREF },
-  { key: "leads", label: "Leads", href: LEADS_HREF },
   { key: "settings", label: "Settings", href: SETTINGS_HREF },
 ];
 

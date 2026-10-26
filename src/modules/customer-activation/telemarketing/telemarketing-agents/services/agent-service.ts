@@ -152,15 +152,24 @@ export async function listAgents(
 /**
  * Search READ-ONLY `user` rows for the registration combobox.
  * Never creates or modifies a user.
+ *
+ * Paged: `limit` caps a single page (50), `offset` walks the collection, so
+ * every user stays reachable however large `user` grows. The sort carries
+ * `user_id` as a tiebreaker — `user_fname` alone is not unique, and unstable
+ * ordering makes offset pages skip or repeat rows.
  */
-export async function listSelectableUsers(search: string, limit: number): Promise<UserOption[]> {
-    const take = Math.min(50, Math.max(1, limit || 20));
+export async function listSelectableUsers(
+    search: string,
+    opts: { limit?: number; offset?: number } = {},
+): Promise<UserOption[]> {
+    const take = Math.min(50, Math.max(1, opts.limit ?? 50));
+    const skip = Math.max(0, opts.offset ?? 0);
     const q = search.trim();
     const filter = q
         ? `&filter=${encodeURIComponent(JSON.stringify({ _or: [{ user_fname: { _icontains: q } }, { user_lname: { _icontains: q } }, { user_email: { _icontains: q } }] }))}`
         : "";
     const body = await request<UserRow[]>(
-        `/items/${USERS}?fields=user_id,user_fname,user_lname,user_email&sort=user_fname&limit=${take}${filter}`,
+        `/items/${USERS}?fields=user_id,user_fname,user_lname,user_email&sort=user_fname,user_id&limit=${take}&offset=${skip}${filter}`,
     );
     return (body.data ?? []).map((row) => ({
         user_id: row.user_id,

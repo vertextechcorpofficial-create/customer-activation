@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  ArrowRightLeft,
   CircleAlert,
   Gauge,
   Lightbulb,
@@ -158,11 +157,7 @@ function HeroBand({ data }: { data: PipelineHealth }) {
           <div className="min-w-0 lg:border-l lg:border-border lg:pl-6">
             <p className="text-xs text-muted-foreground">Stalled stages</p>
             <p className="mt-1 text-2xl font-semibold tabular-nums">{data.stalledStages}</p>
-            {data.stalledStages === 0 ? (
-              <p className="mt-1 text-[11px] text-muted-foreground">No stalled stages</p>
-            ) : (
-              <DeltaSlot delta={data.deltas.stalledStages} />
-            )}
+            <DeltaSlot delta={data.deltas.stalledStages} />
           </div>
         </div>
       </CardContent>
@@ -222,7 +217,6 @@ function StageFunnelCard({ data }: { data: PipelineHealth }) {
           <h2 id={FUNNEL_TITLE_ID} className="leading-none font-semibold">
             Stage funnel
           </h2>
-          <CardDescription className="mt-1">Lead distribution across pipeline stages</CardDescription>
           {hasTerminalTotals && (
             <p className="mt-1 text-xs text-muted-foreground tabular-nums">
               Won {data.totals.won} · Lost {data.totals.lost} · {data.totals.conversionRate}% of
@@ -346,7 +340,6 @@ function DistributionCard({ data }: { data: PipelineHealth }) {
         <h2 id={DISTRIBUTION_TITLE_ID} className="leading-none font-semibold">
           Stage distribution
         </h2>
-        <CardDescription className="mt-1">Number of leads in each stage</CardDescription>
       </CardHeader>
       <CardContent>
         {open.length === 0 ? (
@@ -418,7 +411,6 @@ function DistributionCard({ data }: { data: PipelineHealth }) {
 }
 
 const INSIGHT_ICON = {
-  flow: ArrowRightLeft,
   speed: Gauge,
   stalled: TriangleAlert,
 } as const;
@@ -499,10 +491,6 @@ function StuckLeadsCard({ data }: { data: PipelineHealth }) {
             ? "Nothing to follow up."
             : `${total} ${total === 1 ? "lead has" : "leads have"} had no activity for more than ${threshold} days.`}
         </CardDescription>
-        <p className="text-xs text-muted-foreground">
-          Stuck means no activity for more than {threshold} days, the same window as the selected
-          period, so a wider period uses a wider threshold.
-        </p>
         {truncated && (
           <p className="text-xs text-muted-foreground tabular-nums">
             Showing the {rows.length} oldest of {total} stuck leads.

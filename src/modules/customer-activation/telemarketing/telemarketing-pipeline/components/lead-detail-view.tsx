@@ -236,9 +236,9 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
               size="sm"
               className="min-h-11 md:min-h-0 -ml-2"
             >
-              <Link href="/customer-activation/telemarketing/telemarketing-pipeline/leads">
+              <Link href="/customer-activation/telemarketing/telemarketing-pipeline/pool">
                 <ArrowLeft className="size-4" aria-hidden />
-                All leads
+                Back to pool
               </Link>
             </Button>
             <h1 className="mt-1 truncate text-lg font-semibold tracking-tight">

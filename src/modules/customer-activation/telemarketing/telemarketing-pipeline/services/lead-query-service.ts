@@ -11,61 +11,6 @@ const LEADS = "telemarketing_lead";
 const LEAD_TAGS = "telemarketing_lead_tag";
 const TAGS = "telemarketing_tag";
 
-/** Sort keys the lead list understands; a leading `-` reverses the order. */
-export type LeadSort =
-  | "code"
-  | "-code"
-  | "company"
-  | "-company"
-  | "stage"
-  | "-stage"
-  | "last_activity"
-  | "-last_activity"
-  | "next_follow_up"
-  | "-next_follow_up";
-
-/** Sort key -> column on `telemarketing_lead`. */
-const SORT_COLUMNS: Record<string, string> = {
-  code: "lead_code",
-  company: "company_name",
-  stage: "stage_id",
-  last_activity: "last_activity_at",
-  next_follow_up: "next_follow_up_at",
-};
-
-export interface LeadQueryFilters {
-  stageId?: number;
-  source?: string;
-  search?: string;
-  sort?: LeadSort;
-  page: number;
-  limit: number;
-}
-
-/**
- * Directus `sort` value for a sort key. `lead_id` is appended as a tiebreaker —
- * half these columns are null on most rows, so without it a page boundary can
- * repeat or skip records.
- */
-function sortParam(sort: LeadSort | undefined): string {
-  if (!sort) return "-created_at,lead_id";
-  const descending = sort.startsWith("-");
-  const column = SORT_COLUMNS[descending ? sort.slice(1) : sort];
-  if (!column) return "-created_at,lead_id";
-  return `${descending ? "-" : ""}${column},lead_id`;
-}
-
-export interface LeadQueryMeta {
-  total: number;
-  page: number;
-  limit: number;
-}
-
-export interface LeadQueryResult {
-  items: LeadRecord[];
-  meta: LeadQueryMeta;
-}
-
 function qs(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -87,54 +32,6 @@ function readData<T>(body: unknown): T | null {
   const record = body as Record<string, unknown>;
   if ("errors" in record) return null;
   return (record.data ?? null) as T | null;
-}
-
-function readTotal(body: unknown): number {
-  if (!body || typeof body !== "object") return 0;
-  const meta = (body as Record<string, unknown>).meta as { filter_count?: number } | undefined;
-  return meta?.filter_count ?? 0;
-}
-
-/**
- * Lists leads with the given filters, newest first unless `sort` orders them.
- * @param filters - Stage/source/search/sort filters plus paging.
- * @returns The page of leads and its paging meta.
- */
-export async function listLeads(filters: LeadQueryFilters): Promise<LeadQueryResult> {
-  const page = Math.max(1, Math.trunc(filters.page) || 1);
-  const limit = Math.min(100, Math.max(1, Math.trunc(filters.limit) || 20));
-
-  const clauses: Record<string, unknown>[] = [];
-  if (filters.stageId !== undefined) clauses.push({ stage_id: { _eq: filters.stageId } });
-  if (filters.source) clauses.push({ source: { _eq: filters.source } });
-
-  const search = filters.search?.trim();
-  if (search) {
-    clauses.push({
-      _or: [
-        { company_name: { _icontains: search } },
-        { contact_name: { _icontains: search } },
-        { lead_code: { _icontains: search } },
-        { email: { _icontains: search } },
-        { mobile: { _icontains: search } },
-      ],
-    });
-  }
-
-  const body = await dFetch(
-    `/items/${LEADS}${qs({
-      filter: clauses.length ? JSON.stringify({ _and: clauses }) : undefined,
-      sort: sortParam(filters.sort),
-      limit: String(limit),
-      offset: String((page - 1) * limit),
-      meta: "filter_count",
-    })}`,
-  );
-
-  return {
-    items: readList<LeadRecord>(body),
-    meta: { total: readTotal(body), page, limit },
-  };
 }
 
 /**

@@ -91,7 +91,7 @@ export const HealthDeltasSchema = z.object({
 export type HealthDeltas = z.infer<typeof HealthDeltasSchema>;
 
 export const HealthInsightSchema = z.object({
-  id: z.enum(["flow", "speed", "stalled"]),
+  id: z.enum(["speed", "stalled"]),
   tone: z.enum(["success", "warning", "info", "destructive"]),
   title: z.string(),
   detail: z.string(),

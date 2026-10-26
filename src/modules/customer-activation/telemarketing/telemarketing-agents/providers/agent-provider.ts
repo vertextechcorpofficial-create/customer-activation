@@ -77,7 +77,18 @@ export function deactivateAgent(agentId: number): Promise<Agent> {
     return request<Agent>(`${BASE}/${agentId}`, { method: "DELETE" });
 }
 
-export function searchUsers(search: string, limit = 20): Promise<UserOption[]> {
-    const params = new URLSearchParams({ search, limit: String(limit) });
-    return request<UserOption[]>(`${BASE}/users?${params.toString()}`);
+/** One page of the registration combobox's user search. */
+export const USER_PAGE_SIZE = 50;
+
+export function searchUsers(params: {
+    search: string;
+    offset?: number;
+    limit?: number;
+}): Promise<UserOption[]> {
+    const qs = new URLSearchParams({
+        search: params.search,
+        limit: String(params.limit ?? USER_PAGE_SIZE),
+        offset: String(params.offset ?? 0),
+    });
+    return request<UserOption[]>(`${BASE}/users?${qs.toString()}`);
 }

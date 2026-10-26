@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import {
     AlertTriangle,
     Check,
@@ -31,7 +31,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
     Command,
-    CommandEmpty,
     CommandGroup,
     CommandInput,
     CommandItem,
@@ -56,7 +55,7 @@ import {
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContentInDialog, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
@@ -147,6 +146,13 @@ type FormErrors = Partial<Record<"user_id" | keyof FormState, string>>;
 
 const EMPTY_FORM: FormState = { display_name: "", daily_call_target: "", is_active: true };
 
+/**
+ * Single-user picker. The option list is a portalled `PopoverContent`, so
+ * opening it adds zero layout height to the dialog it sits in. Because it
+ * lands outside the dialog's DOM, `DialogContent` ignores pointer-down events
+ * that originate inside `[data-user-picker]`; without that the dialog would
+ * treat every pick as an outside click and close.
+ */
 function UserCombobox({
     value,
     onPick,
@@ -156,21 +162,42 @@ function UserCombobox({
     onPick: (user: UserOption) => void;
     error?: string;
 }) {
+    const panelId = useId();
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
-    const { options, isSearching } = useUserOptions(search, open);
+    const [highlighted, setHighlighted] = useState("");
+    const { options, isSearching, isLoadingMore, loadMore } = useUserOptions(search, open);
+
+    // Derived, not stored: the highlight always points at a row that exists,
+    // so plain Enter selects what the list actually shows (the first match
+    // when the previous highlight is gone).
+    const activeUserId =
+        highlighted && options.some((user) => String(user.user_id) === highlighted)
+            ? highlighted
+            : options[0]
+              ? String(options[0].user_id)
+              : "";
+
+    const pick = (userId: string) => {
+        const user = options.find((option) => String(option.user_id) === userId) ?? options[0];
+        if (!user) return;
+        onPick(user);
+        setOpen(false);
+    };
 
     return (
         <div className="grid gap-2">
             <Label>
                 User <span className="text-destructive">*</span>
             </Label>
-            <Popover open={open} onOpenChange={setOpen}>
+            <Popover open={open} onOpenChange={setOpen} modal>
                 <PopoverTrigger asChild>
                     <Button
+                        type="button"
                         variant="outline"
                         role="combobox"
                         aria-expanded={open}
+                        aria-controls={open ? panelId : undefined}
                         className="w-full justify-between font-normal"
                     >
                         <span className="min-w-0 flex-1 truncate text-left" title={value ? `${value.name} — ${value.email}` : undefined}>
@@ -183,43 +210,76 @@ function UserCombobox({
                         )}
                     </Button>
                 </PopoverTrigger>
-                <PopoverContentInDialog className="w-(--radix-popover-trigger-width) p-0" align="start">
-                    <Command shouldFilter={false}>
+                <PopoverContent
+                    align="start"
+                    sideOffset={4}
+                    data-user-picker
+                    className="pointer-events-auto w-[var(--radix-popover-trigger-width)] p-0"
+                >
+                    <Command
+                        id={panelId}
+                        shouldFilter={false}
+                        value={activeUserId}
+                        onValueChange={setHighlighted}
+                    >
                         <CommandInput
                             placeholder="Type a name or email…"
                             value={search}
                             onValueChange={setSearch}
+                            autoFocus
+                            onKeyDown={(event) => {
+                                if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                                // cmdk only selects on Enter once an item is
+                                // highlighted; plain Enter must select too.
+                                event.preventDefault();
+                                event.stopPropagation();
+                                pick(activeUserId);
+                            }}
                         />
-                        <CommandList className="max-h-64">
-                            <CommandEmpty>No users found.</CommandEmpty>
-                            <CommandGroup>
-                                {options.map((user) => {
-                                    const label = user.email ? `${user.name} — ${user.email}` : user.name;
-                                    return (
-                                        <CommandItem
-                                            key={user.user_id}
-                                            value={String(user.user_id)}
-                                            title={label}
-                                            onSelect={() => {
-                                                onPick(user);
-                                                setOpen(false);
-                                            }}
-                                        >
-                                            <Check
-                                                className={
-                                                    value?.user_id === user.user_id
-                                                        ? "size-4 shrink-0 opacity-100"
-                                                        : "size-4 shrink-0 opacity-0"
-                                                }
-                                            />
-                                            <span className="min-w-0 flex-1 truncate">{label}</span>
-                                        </CommandItem>
-                                    );
-                                })}
-                            </CommandGroup>
+                        <CommandList
+                            className="max-h-56"
+                            aria-busy={isSearching || isLoadingMore}
+                            onScroll={(event) => {
+                                const list = event.currentTarget;
+                                if (list.scrollHeight - list.scrollTop - list.clientHeight < 48) loadMore();
+                            }}
+                        >
+                            {options.length === 0 ? (
+                                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                    {isSearching ? "Searching users…" : "No users found."}
+                                </div>
+                            ) : (
+                                <CommandGroup>
+                                    {options.map((user) => {
+                                        const label = user.email ? `${user.name} — ${user.email}` : user.name;
+                                        return (
+                                            <CommandItem
+                                                key={user.user_id}
+                                                value={String(user.user_id)}
+                                                title={label}
+                                                onSelect={() => pick(String(user.user_id))}
+                                            >
+                                                <Check
+                                                    className={
+                                                        value?.user_id === user.user_id
+                                                            ? "size-4 shrink-0 opacity-100"
+                                                            : "size-4 shrink-0 opacity-0"
+                                                    }
+                                                />
+                                                <span className="min-w-0 flex-1 truncate">{label}</span>
+                                            </CommandItem>
+                                        );
+                                    })}
+                                </CommandGroup>
+                            )}
+                            {isLoadingMore ? (
+                                <p className="px-3 py-2 text-center text-xs text-muted-foreground" role="status">
+                                    Loading more…
+                                </p>
+                            ) : null}
                         </CommandList>
                     </Command>
-                </PopoverContentInDialog>
+                </PopoverContent>
             </Popover>
             {error && (
                 <p className="flex items-start gap-1 text-xs text-foreground">
@@ -595,7 +655,17 @@ export function AgentSettings() {
             </Card>
 
             <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
-                <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+                <DialogContent
+                    className="flex max-h-[85vh] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg"
+                    onPointerDownOutside={(event) => {
+                        // The user picker floats in a portal outside this
+                        // content; its clicks are not dismissals.
+                        const target = event.target;
+                        if (target instanceof Element && target.closest("[data-user-picker]")) {
+                            event.preventDefault();
+                        }
+                    }}
+                >
                     <DialogHeader className="px-6 pt-6">
                         <DialogTitle className="line-clamp-1">
                             {dialog?.mode === "edit" ? "Edit agent" : "Register agent"}

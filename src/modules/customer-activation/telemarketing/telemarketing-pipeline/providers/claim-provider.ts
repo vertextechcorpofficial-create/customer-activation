@@ -21,6 +21,7 @@ export interface PoolQueryParams {
   sort?: PoolSort;
   page?: number;
   limit?: number;
+  includeClosed?: boolean;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -39,6 +40,7 @@ function poolQs(params: PoolQueryParams): string {
   const search = new URLSearchParams();
   if (params.search) search.set("search", params.search);
   if (params.stageId !== undefined && params.stageId !== null) search.set("stageId", String(params.stageId));
+  if (params.includeClosed) search.set("includeClosed", "1");
   if (params.sort) search.set("sort", params.sort);
   if (params.page !== undefined) search.set("page", String(params.page));
   if (params.limit !== undefined) search.set("limit", String(params.limit));

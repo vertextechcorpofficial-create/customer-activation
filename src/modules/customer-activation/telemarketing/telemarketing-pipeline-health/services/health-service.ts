@@ -114,31 +114,7 @@ function buildInsights(input: {
   period: number;
   stalledStages: number;
 }): HealthInsight[] {
-  const { stuckTotal, open, medianAgeDays, period, stalledStages } = input;
-  const share = open === 0 ? 0 : (stuckTotal / open) * 100;
-
-  const flow: HealthInsight =
-    stuckTotal === 0 || share < 10
-      ? {
-          id: "flow",
-          tone: "success",
-          title: "Pipeline moving well",
-          detail:
-            stuckTotal === 0 ? "No leads have gone quiet." : "Only a few leads need a nudge.",
-        }
-      : share < 20
-        ? {
-            id: "flow",
-            tone: "warning",
-            title: "Follow-ups piling up",
-            detail: "More leads are going quiet and need attention.",
-          }
-        : {
-            id: "flow",
-            tone: "destructive",
-            title: "Pipeline needs attention",
-            detail: "Many leads have gone quiet and need follow-up now.",
-          };
+  const { medianAgeDays, period, stalledStages } = input;
 
   const ratio = medianAgeDays / period;
   const speed: HealthInsight =
@@ -160,14 +136,9 @@ function buildInsights(input: {
               detail: "Typical waiting times are running long.",
             };
 
-  const stalled: HealthInsight =
+  const stalled: HealthInsight | null =
     stalledStages === 0
-      ? {
-          id: "stalled",
-          tone: "success",
-          title: "No stalled stages",
-          detail: "Every stage has recent movement.",
-        }
+      ? null
       : stalledStages === 1
         ? {
             id: "stalled",
@@ -182,7 +153,7 @@ function buildInsights(input: {
             detail: "Several stages have had no recent movement.",
           };
 
-  return [flow, speed, stalled];
+  return stalled === null ? [speed] : [speed, stalled];
 }
 
 interface LeadCountEnvelope {

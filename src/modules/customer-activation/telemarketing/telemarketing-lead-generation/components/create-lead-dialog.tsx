@@ -147,12 +147,13 @@ export function CreateLeadDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto rounded-2xl p-0 sm:max-w-[500px]">
-                <DialogHeader className="p-6 pb-0">
+            <DialogContent className="flex h-[min(90dvh,44rem)] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+                <DialogHeader className="shrink-0 p-6 pb-0">
                     <DialogTitle>Create lead</DialogTitle>
                     <DialogDescription>Snapshot is copied onto the lead at creation.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit} className="grid gap-3 p-6 pt-0">
+                <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-6 py-4">
                     <div className="grid gap-1.5">
                         <Label htmlFor="lg-source">Source</Label>
                         <Input id="lg-source" value={source} disabled readOnly />
@@ -286,7 +287,8 @@ export function CreateLeadDialog({
                             disabled={isSubmitting}
                         />
                     </div>
-                    <DialogFooter>
+                    </div>
+                    <DialogFooter className="shrink-0 border-t bg-muted/20 px-6 py-4">
                         <DialogClose asChild>
                             <Button type="button" variant="outline" disabled={isSubmitting}>
                                 Cancel

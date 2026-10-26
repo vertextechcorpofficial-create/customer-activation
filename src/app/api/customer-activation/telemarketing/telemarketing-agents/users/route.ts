@@ -20,10 +20,14 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") ?? "";
-    const limit = Number(searchParams.get("limit") ?? 20);
+    const limit = Number(searchParams.get("limit") ?? 50);
+    const offset = Number(searchParams.get("offset") ?? 0);
 
     try {
-        const users = await listSelectableUsers(search, Number.isFinite(limit) ? limit : 20);
+        const users = await listSelectableUsers(search, {
+            limit: Number.isFinite(limit) ? limit : 50,
+            offset: Number.isFinite(offset) ? offset : 0,
+        });
         return NextResponse.json({ success: true, data: users });
     } catch (error) {
         console.error("[telemarketing/telemarketing-agents/users] GET failed:", error);

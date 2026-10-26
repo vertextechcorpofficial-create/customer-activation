@@ -17,9 +17,13 @@ const PoolQuerySchema = z.object({
   search: z.string().max(191).optional(),
   stageId: z.coerce.number().int().positive().optional(),
   sort: z.enum(["code", "-code", "company", "-company", "claimants", "-claimants"]).optional(),
+  includeClosed: z
+    .enum(["0", "1", "true", "false"])
+    .optional()
+    .transform((value) => value === "1" || value === "true"),
 });
 
-/** Leads in non-terminal stages — claiming never removes a lead from here. */
+/** Open pool leads — pass `includeClosed=1` to list closed stages too. Claiming never removes a lead from here. */
 export async function GET(req: NextRequest) {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
@@ -37,6 +41,7 @@ export async function GET(req: NextRequest) {
     search: absent(query.get("search")),
     stageId: absent(query.get("stageId")),
     sort: absent(query.get("sort")),
+    includeClosed: absent(query.get("includeClosed")),
   });
   if (!parsed.success)
     return NextResponse.json(

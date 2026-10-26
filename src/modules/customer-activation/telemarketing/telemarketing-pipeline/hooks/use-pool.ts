@@ -15,17 +15,25 @@ export interface UsePoolParams {
   sort?: PoolSort;
   page?: number;
   limit?: number;
+  includeClosed?: boolean;
 }
 
-/** Lead pool: non-terminal leads with the caller's claim state. */
+/** Lead pool: open leads, plus closed ones when `includeClosed` is set. */
 export function usePool(params: UsePoolParams = {}) {
-  const { search, stageId, sort, page = 1, limit = 10 } = params;
+  const { search, stageId, sort, page = 1, limit = 10, includeClosed = false } = params;
   const [pool, setPool] = useState<PoolResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const key = JSON.stringify({ search: search ?? "", stageId: stageId ?? null, sort: sort ?? null, page, limit });
+  const key = JSON.stringify({
+    search: search ?? "",
+    stageId: stageId ?? null,
+    sort: sort ?? null,
+    page,
+    limit,
+    includeClosed,
+  });
 
   const refresh = useCallback(async () => {
     abortRef.current?.abort();
@@ -43,6 +51,7 @@ export function usePool(params: UsePoolParams = {}) {
             sort: parsed.sort ?? undefined,
             page: parsed.page,
             limit: parsed.limit,
+            includeClosed: parsed.includeClosed || undefined,
           },
           controller.signal,
         ),

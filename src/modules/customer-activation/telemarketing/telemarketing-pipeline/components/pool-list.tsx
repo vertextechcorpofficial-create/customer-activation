@@ -8,8 +8,10 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Inbox,
   Loader2,
   RefreshCw,
@@ -19,10 +21,19 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -38,6 +49,7 @@ import { usePool } from "../hooks/use-pool";
 import { useStages } from "../hooks/use-stages";
 import { claimLead, getPool } from "../providers/claim-provider";
 import { isTerminalStage } from "../types/pipeline.schema";
+import type { Stage } from "../types/pipeline.schema";
 import type { PoolLead, PoolSort } from "../services/claim-service";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -91,7 +103,106 @@ function SortHeaderButton({
   );
 }
 
-/** Unclaimed, non-terminal leads — claim one to start working it. */
+/** Searchable single-select stage filter — same Popover + Command pattern as the lead-generation client picker. */
+function StageCombobox({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  options: Stage[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((stage) => stage.stage_name.toLowerCase().includes(q))
+    : options;
+  const selected = options.find((stage) => String(stage.stage_id) === value) ?? null;
+  const label = selected ? selected.stage_name : "All stages";
+  const showAll = q === "" || "all stages".includes(q);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label="Filter by stage"
+          disabled={disabled}
+          className="h-9 w-full justify-between font-normal sm:w-44"
+        >
+          <span className="min-w-0 flex-1 truncate text-left" title={label}>
+            {label}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command shouldFilter={false} label="Search stages">
+          <CommandInput placeholder="Search stages…" value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No stages found.</CommandEmpty>
+            <CommandGroup>
+              {showAll ? (
+              <CommandItem
+                value="all-stages"
+                keywords={["All stages"]}
+                onSelect={() => {
+                  onChange(ALL);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <Check
+                  className={cn("size-4 shrink-0", value === ALL ? "opacity-100" : "opacity-0")}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">All stages</span>
+              </CommandItem>
+              ) : null}
+              {filtered.map((stage) => {
+                const stageValue = String(stage.stage_id);
+                const isSelected = stageValue === value;
+                return (
+                  <CommandItem
+                    key={stage.stage_id}
+                    value={`${stage.stage_name} ${stageValue}`}
+                    keywords={[stage.stage_name]}
+                    title={stage.stage_name}
+                    onSelect={() => {
+                      onChange(stageValue);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  >
+                    <Check
+                      className={cn("size-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{stage.stage_name}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Open leads — claim one to start working it. "Show closed" adds read-only terminal rows. */
 export function PoolList() {
   const router = useRouter();
   const pathname = usePathname();
@@ -102,6 +213,7 @@ export function PoolList() {
   const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
   const [debouncedSearch] = useDebounce(search, 300);
   const [stageFilter, setStageFilter] = useState<string>(() => searchParams.get("stageId") ?? ALL);
+  const [includeClosed, setIncludeClosed] = useState(() => searchParams.get("includeClosed") === "1");
   const [sortKey, setSortKey] = useState<SortKey | null>(() => parseSort(searchParams.get("sort")).key);
   const [sortDir, setSortDir] = useState<SortDir>(() => parseSort(searchParams.get("sort")).dir);
   const [page, setPage] = useState(() => {
@@ -121,11 +233,15 @@ export function PoolList() {
 
   const { stages, isLoading: stagesLoading, error: stagesError } = useStages();
 
-  const activeStages = useMemo(
-    () => stages.filter((stage) => Number(stage.is_active) === 1 && !isTerminalStage(stage)),
-    [stages],
+  const stageOptions = useMemo(
+    () => stages.filter((stage) => Number(stage.is_active) === 1 && (includeClosed || !isTerminalStage(stage))),
+    [stages, includeClosed],
   );
   const stageById = useMemo(() => new Map(stages.map((stage) => [stage.stage_id, stage])), [stages]);
+  const isClosedLead = (lead: PoolLead) => {
+    const stage = stageById.get(lead.stage_id);
+    return stage ? isTerminalStage(stage) : false;
+  };
 
   const sort: PoolSort | undefined =
     sortKey === null ? undefined : ((sortDir === "desc" ? `-${sortKey}` : sortKey) as PoolSort);
@@ -136,6 +252,7 @@ export function PoolList() {
     sort,
     page,
     limit: pageSize,
+    includeClosed,
   });
 
   const pageCount = Math.max(1, Math.ceil(meta.total / pageSize));
@@ -149,7 +266,7 @@ export function PoolList() {
   // Page-scoped selection never survives a listing change.
   useEffect(() => {
     setSelected(new Map());
-  }, [debouncedSearch, stageFilter, sort, page, pageSize]);
+  }, [debouncedSearch, stageFilter, includeClosed, sort, page, pageSize]);
 
   // Mirror the listing into the address bar. replaceState keeps the back
   // button meaning "leave the page" rather than "undo one keystroke".
@@ -157,14 +274,15 @@ export function PoolList() {
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (stageFilter !== ALL) params.set("stageId", stageFilter);
+    if (includeClosed) params.set("includeClosed", "1");
     if (sort) params.set("sort", sort);
     if (page > 1) params.set("page", String(page));
     if (pageSize !== PAGE_SIZES[0]) params.set("limit", String(pageSize));
     const query = params.toString();
     window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
-  }, [debouncedSearch, stageFilter, sort, page, pageSize, pathname]);
+  }, [debouncedSearch, stageFilter, includeClosed, sort, page, pageSize, pathname]);
 
-  const isActive = search.trim() !== "" || stageFilter !== ALL || sortKey !== null;
+  const isActive = search.trim() !== "" || stageFilter !== ALL || sortKey !== null || includeClosed;
   const isFiltered = search.trim() !== "" || stageFilter !== ALL;
 
   // The header talks about the pool, not the filter, so a no-match search
@@ -179,11 +297,11 @@ export function PoolList() {
   // (or the deep-link total) is in flight, and a plain count if the extra
   // request fails — a bare "0 open leads" reads as an empty pool.
   const totalUnknown = (isLoading && meta.total === 0) || (isFiltered && collectionTotal === 0 && !totalFailed);
-  const noun = meta.total === 1 ? "open lead" : "open leads";
+  const noun = meta.total === 1 ? (includeClosed ? "lead" : "open lead") : includeClosed ? "leads" : "open leads";
   const countLabel = error || totalUnknown
     ? "—"
     : isFiltered && collectionTotal > 0
-      ? `${meta.total} of ${collectionTotal} ${collectionTotal === 1 ? "open lead" : "open leads"}`
+      ? `${meta.total} of ${collectionTotal} ${collectionTotal === 1 ? (includeClosed ? "lead" : "open lead") : includeClosed ? "leads" : "open leads"}`
       : `${meta.total} ${noun}`;
 
   // A deep link can arrive already filtered, so no unfiltered response was ever
@@ -192,7 +310,7 @@ export function PoolList() {
     if (requestedTotal.current || collectionTotal > 0 || !isFiltered) return;
     requestedTotal.current = true;
     let cancelled = false;
-    void getPool({ page: 1, limit: 1 })
+    void getPool({ page: 1, limit: 1, includeClosed: includeClosed || undefined })
       .then((result) => {
         if (!cancelled) setCollectionTotal(result.meta.total);
       })
@@ -203,11 +321,13 @@ export function PoolList() {
     return () => {
       cancelled = true;
     };
-  }, [collectionTotal, isFiltered]);
+  }, [collectionTotal, isFiltered, includeClosed]);
 
   const selectedCount = selected.size;
-  const allSelected = items.length > 0 && items.every((lead) => selected.has(lead.lead_id));
-  const someSelected = items.some((lead) => selected.has(lead.lead_id));
+  // Closed rows are read-only: never selectable, so bulk claim cannot touch them.
+  const claimableItems = items.filter((lead) => !isClosedLead(lead));
+  const allSelected = claimableItems.length > 0 && claimableItems.every((lead) => selected.has(lead.lead_id));
+  const someSelected = claimableItems.some((lead) => selected.has(lead.lead_id));
 
   function toggleSort(column: SortKey) {
     if (sortKey !== column) {
@@ -227,6 +347,7 @@ export function PoolList() {
   function resetControls() {
     setSearch("");
     setStageFilter(ALL);
+    setIncludeClosed(false);
     setSortKey(null);
     setSortDir("asc");
     setPage(1);
@@ -245,6 +366,8 @@ export function PoolList() {
     setSelected((prev) => {
       const next = new Map(prev);
       for (const lead of items) {
+        // Closed rows stay unselected — there is nothing to claim on them.
+        if (checked && isClosedLead(lead)) continue;
         if (checked) next.set(lead.lead_id, lead);
         else next.delete(lead.lead_id);
       }
@@ -256,7 +379,7 @@ export function PoolList() {
   // first error — is the outcome. Claiming is idempotent server-side, so rows
   // already held are skipped without a write.
   async function runBulkClaim() {
-    const targets = items.filter((lead) => selected.has(lead.lead_id));
+    const targets = items.filter((lead) => selected.has(lead.lead_id) && !isClosedLead(lead));
     if (targets.length === 0 || bulkRunning) return;
     setBulkRunning(true);
     setBulkDone(0);
@@ -338,27 +461,32 @@ export function PoolList() {
                 </button>
               ) : null}
             </div>
-            <Select
+            <StageCombobox
+              options={stageOptions}
               value={stageFilter}
-              onValueChange={(value) => {
+              onChange={(selectedValue) => {
                 rememberTotal();
-                setStageFilter(value);
+                setStageFilter(selectedValue);
                 setPage(1);
               }}
               disabled={stagesLoading}
+            />
+            <label
+              htmlFor="pool-show-closed"
+              className="flex h-9 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-muted-foreground"
             >
-              <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Filter by stage">
-                <SelectValue placeholder="All stages" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All stages</SelectItem>
-                {activeStages.map((stage) => (
-                  <SelectItem key={stage.stage_id} value={String(stage.stage_id)}>
-                    {stage.stage_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <Checkbox
+                id="pool-show-closed"
+                checked={includeClosed}
+                onCheckedChange={(value) => {
+                  rememberTotal();
+                  setIncludeClosed(value === true);
+                  setPage(1);
+                }}
+                className="focus-visible:ring-ring"
+              />
+              Show closed
+            </label>
             {isActive ? (
               <Button
                 type="button"
@@ -404,7 +532,9 @@ export function PoolList() {
                 <EmptyDescription>
                   {isActive
                     ? "No lead matches these filters. Clear the search or widen the stage filter."
-                    : "Open leads appear here as soon as they reach a non-terminal stage."}
+                    : includeClosed
+                      ? "Leads appear here as soon as they reach an active stage."
+                      : "Open leads appear here as soon as they reach a non-terminal stage."}
                 </EmptyDescription>
               </EmptyHeader>
               {isActive ? (
@@ -456,6 +586,7 @@ export function PoolList() {
               <ul className="grid gap-2 sm:hidden">
                 {items.map((lead) => {
                   const stage = stageById.get(lead.stage_id);
+                  const closed = stage ? isTerminalStage(stage) : false;
                   const pending = pendingId === lead.lead_id;
                   const checked = selected.has(lead.lead_id);
                   const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
@@ -475,6 +606,7 @@ export function PoolList() {
                             checked={checked}
                             onCheckedChange={(value) => toggleOne(lead.lead_id, lead, value === true)}
                             aria-label={`Select ${lead.company_name}`}
+                            disabled={closed}
                             className="mt-1 focus-visible:ring-ring"
                           />
                         </span>
@@ -506,23 +638,27 @@ export function PoolList() {
                         {lead.claimed_by_me ? <StatusPill tone="info">you</StatusPill> : null}
                       </div>
                       <div className="mt-1 flex justify-end">
-                        <Button
-                          variant={lead.claimed_by_me ? "outline" : "default"}
-                          size="sm"
-                          data-no-row-click
-                          className="relative z-10 min-h-11 w-full focus-visible:ring-ring"
-                          disabled={pending || isLoading || bulkRunning}
-                          onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}
-                        >
-                          {pending ? (
-                            <Loader2 className="size-4 animate-spin" aria-hidden />
-                          ) : lead.claimed_by_me ? (
-                            <UserMinus className="size-4" aria-hidden />
-                          ) : (
-                            <UserPlus className="size-4" aria-hidden />
-                          )}
-                          {lead.claimed_by_me ? "Release" : "Claim"}
-                        </Button>
+                        {closed ? (
+                          <span className="text-xs text-muted-foreground">Closed</span>
+                        ) : (
+                          <Button
+                            variant={lead.claimed_by_me ? "outline" : "default"}
+                            size="sm"
+                            data-no-row-click
+                            className="relative z-10 min-h-11 w-full focus-visible:ring-ring"
+                            disabled={pending || isLoading || bulkRunning}
+                            onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}
+                          >
+                            {pending ? (
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                            ) : lead.claimed_by_me ? (
+                              <UserMinus className="size-4" aria-hidden />
+                            ) : (
+                              <UserPlus className="size-4" aria-hidden />
+                            )}
+                            {lead.claimed_by_me ? "Release" : "Claim"}
+                          </Button>
+                        )}
                       </div>
                     </li>
                   );
@@ -599,6 +735,7 @@ export function PoolList() {
                   <TableBody>
                     {items.map((lead) => {
                       const stage = stageById.get(lead.stage_id);
+                      const closed = stage ? isTerminalStage(stage) : false;
                       const pending = pendingId === lead.lead_id;
                       const checked = selected.has(lead.lead_id);
                       const leadHref = `/customer-activation/telemarketing/telemarketing-pipeline/leads/${lead.lead_id}`;
@@ -622,6 +759,7 @@ export function PoolList() {
                               checked={checked}
                               onCheckedChange={(value) => toggleOne(lead.lead_id, lead, value === true)}
                               aria-label={`Select ${lead.company_name}`}
+                              disabled={closed}
                               className="focus-visible:ring-ring"
                             />
                           </TableCell>
@@ -667,23 +805,27 @@ export function PoolList() {
                             ) : null}
                           </TableCell>
                           <TableCell className="text-right" data-no-row-click>
-                            <Button
-                              variant={lead.claimed_by_me ? "outline" : "default"}
-                              size="sm"
-                              data-no-row-click
-                              className="min-h-11 md:min-h-0 focus-visible:ring-ring"
-                              disabled={pending || isLoading || bulkRunning}
-                              onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}
-                            >
-                              {pending ? (
-                                <Loader2 className="size-4 animate-spin" aria-hidden />
-                              ) : lead.claimed_by_me ? (
-                                <UserMinus className="size-4" aria-hidden />
-                              ) : (
-                                <UserPlus className="size-4" aria-hidden />
-                              )}
-                              {lead.claimed_by_me ? "Release" : "Claim"}
-                            </Button>
+                            {closed ? (
+                              <span className="text-xs text-muted-foreground">Closed</span>
+                            ) : (
+                              <Button
+                                variant={lead.claimed_by_me ? "outline" : "default"}
+                                size="sm"
+                                data-no-row-click
+                                className="min-h-11 md:min-h-0 focus-visible:ring-ring"
+                                disabled={pending || isLoading || bulkRunning}
+                                onClick={() => void handleToggle(lead.lead_id, lead.claimed_by_me)}
+                              >
+                                {pending ? (
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                ) : lead.claimed_by_me ? (
+                                  <UserMinus className="size-4" aria-hidden />
+                                ) : (
+                                  <UserPlus className="size-4" aria-hidden />
+                                )}
+                                {lead.claimed_by_me ? "Release" : "Claim"}
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
