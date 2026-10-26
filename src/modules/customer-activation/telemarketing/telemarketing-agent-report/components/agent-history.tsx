@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
 import {
     Activity,
     ArrowDown,
@@ -15,11 +16,13 @@ import {
     Phone,
     RefreshCw,
     StickyNote,
+    Trophy,
     UsersRound,
     type LucideIcon,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAgentHistory } from "../hooks/use-agent-history";
@@ -220,11 +223,11 @@ function DeltaLine({ delta, unit }: { delta: number | null; unit: "%" | "pts" })
     return (
         <p
             className={cn("flex items-center gap-1 text-xs tabular-nums", tone)}
-            aria-label={`${direction} ${magnitude} versus previous`}
+            aria-label={`${direction} ${magnitude} versus previous period`}
         >
             <Icon className="size-3 shrink-0" aria-hidden />
             <span>{magnitude}</span>
-            <span className="font-normal text-muted-foreground">vs previous</span>
+            <span className="font-normal text-muted-foreground">vs previous period</span>
         </p>
     );
 }
@@ -236,7 +239,7 @@ function StreakBadge({ days }: { days: number }) {
         <span
             aria-label={`${days} day activity streak`}
             className={cn(
-                "mt-2 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums",
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums",
                 days >= 7
                     ? "border-transparent bg-destructive/15 text-destructive"
                     : days >= 3
@@ -250,56 +253,84 @@ function StreakBadge({ days }: { days: number }) {
     );
 }
 
-/** Tinted summary band — same visual language as the pipeline health hero band. */
-function SummaryBand({ history }: { history: AgentHistoryData }) {
-    const { kpis, deltas, rank, streak_days } = history;
-    const stats: Array<{ label: string; value: string; delta: number | null; unit: "%" | "pts" }> = [
-        { label: "Activities", value: String(kpis.activities), delta: deltas.activities, unit: "%" },
-        { label: "Claimed", value: String(kpis.claimed), delta: deltas.claimed, unit: "%" },
-        { label: "Won", value: String(kpis.won), delta: deltas.won, unit: "%" },
-        {
-            label: "Conversion rate",
-            value: formatRate(kpis.conv_rate),
-            delta: deltas.conv_rate,
-            unit: "pts",
-        },
-    ];
-    // Vertical rules: 2×2 on mobile (cells 2 and 4), full row dividers at lg.
-    const cellRule = [
-        "",
-        "border-l border-border pl-4",
-        "lg:border-l lg:border-border lg:pl-4",
-        "border-l border-border pl-4",
-    ];
+/** KPI band — top-accent border, faint tint, icon chip; rank lives in the hero now. */
+function KpiCard({
+    label,
+    value,
+    icon,
+    iconClass,
+    toneClass,
+    className = "",
+    children,
+}: {
+    label: string;
+    value: string;
+    icon: ReactNode;
+    iconClass: string;
+    toneClass: string;
+    className?: string;
+    children: ReactNode;
+}) {
     return (
-        <Card className="bg-muted/60">
-            <CardContent className="flex flex-col gap-6 lg:flex-row lg:items-center">
-                <div className="min-w-0 shrink-0 lg:w-52">
-                    <p className="text-xs font-medium text-muted-foreground">Team rank</p>
-                    <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums">
-                        #{rank.position}{" "}
-                        <span className="text-lg font-semibold text-muted-foreground">
-                            of {rank.of}
-                        </span>
+        <Card className={cn("shadow-none border-border/70 bg-card", toneClass, className)}>
+            <CardContent className="space-y-1 p-3 sm:p-4">
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                        {label}
                     </p>
-                    <StreakBadge days={streak_days} />
+                    <span
+                        aria-hidden
+                        className={cn(
+                            "flex size-9 shrink-0 items-center justify-center rounded-xl border",
+                            iconClass,
+                        )}
+                    >
+                        {icon}
+                    </span>
                 </div>
-                <dl
-                    className="grid flex-1 grid-cols-2 gap-x-4 gap-y-6 lg:grid-cols-4"
-                    aria-label="Agent KPIs"
-                >
-                    {stats.map((stat, index) => (
-                        <div key={stat.label} className={cn("min-w-0", cellRule[index])}>
-                            <dt className="text-xs text-muted-foreground">{stat.label}</dt>
-                            <dd className="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</dd>
-                            <dd className="mt-1">
-                                <DeltaLine delta={stat.delta} unit={stat.unit} />
-                            </dd>
-                        </div>
-                    ))}
-                </dl>
+                <p className="text-2xl font-semibold tabular-nums">{value}</p>
+                <div className="text-xs text-muted-foreground">{children}</div>
             </CardContent>
         </Card>
+    );
+}
+
+function KpiBand({ history }: { history: AgentHistoryData }) {
+    const { kpis, deltas } = history;
+    return (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-label="Agent KPIs">
+            <KpiCard
+                label="Activities"
+                value={String(kpis.activities)}
+                icon={<Activity className="size-4" aria-hidden />}
+                iconClass="border-primary/20 bg-primary/10 text-primary"
+                toneClass="border-t-2 border-t-primary bg-primary/[0.04]"
+            >
+                <DeltaLine delta={deltas.activities} unit="%" />
+            </KpiCard>
+            <KpiCard
+                label="Claimed"
+                value={String(kpis.claimed)}
+                icon={<UsersRound className="size-4" aria-hidden />}
+                iconClass="border-info/20 bg-info/10 text-info"
+                toneClass="border-t-2 border-t-info bg-info/[0.06]"
+            >
+                <DeltaLine delta={deltas.claimed} unit="%" />
+            </KpiCard>
+            <KpiCard
+                label="Won"
+                value={String(kpis.won)}
+                icon={<Trophy className="size-4" aria-hidden />}
+                iconClass="border-success/20 bg-success/10 text-success"
+                toneClass="border-t-2 border-t-success bg-success/[0.06]"
+                className="col-span-2 sm:col-span-1"
+            >
+                <p className="tabular-nums">
+                    {kpis.won}/{kpis.claimed} claimed · {formatRate(kpis.conv_rate)}
+                </p>
+                <DeltaLine delta={deltas.conv_rate} unit="pts" />
+            </KpiCard>
+        </div>
     );
 }
 
@@ -382,7 +413,7 @@ function WorkMixHalf({ history }: { history: AgentHistoryData }) {
     ];
     return (
         <section aria-label="Work mix" className="min-w-0">
-            <h2 className="text-sm font-semibold">Work mix</h2>
+            <h2 className="text-sm font-semibold leading-none">Work mix</h2>
             {total === 0 ? (
                 <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                     <Activity className="size-4 shrink-0" aria-hidden />
@@ -459,7 +490,7 @@ function VersusTeamHalf({ history }: { history: AgentHistoryData }) {
             className="min-w-0 lg:border-l lg:border-border lg:pl-6"
         >
             <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">Versus team</h2>
+                <h2 className="text-sm font-semibold leading-none">Versus team</h2>
                 <span className="text-xs tabular-nums text-muted-foreground">
                     {team.agents} in team
                 </span>
@@ -502,7 +533,7 @@ function VersusTeamHalf({ history }: { history: AgentHistoryData }) {
 
 function MixAndVersusCard({ history }: { history: AgentHistoryData }) {
     return (
-        <Card className="min-w-0">
+        <Card className="min-w-0 shadow-none border-border/70 bg-card">
             <CardContent className="grid min-w-0 gap-8 lg:grid-cols-2 lg:gap-6">
                 <WorkMixHalf history={history} />
                 <VersusTeamHalf history={history} />
@@ -513,41 +544,18 @@ function MixAndVersusCard({ history }: { history: AgentHistoryData }) {
 
 function HistorySkeleton() {
     return (
-        <div className="grid min-w-0 gap-6" aria-label="Loading agent history">
-            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-                <div className="grid gap-2">
-                    <Skeleton className="h-4 w-28" />
-                    <div className="flex items-center gap-3">
-                        <Skeleton className="h-9 w-56" />
-                        <Skeleton className="h-5 w-20" />
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Skeleton className="h-9 w-40" />
-                    <Skeleton className="size-9" />
-                </div>
+        <div className="grid min-w-0 gap-3" aria-label="Loading agent history">
+            <Skeleton className="h-32 w-full rounded-2xl" />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Skeleton className="h-28 w-full" />
+                <Skeleton className="h-28 w-full" />
+                <Skeleton className="h-28 w-full col-span-2 sm:col-span-1" />
             </div>
-            <Skeleton className="h-40 w-full rounded-xl" />
-            <div className="grid items-start gap-6 lg:grid-cols-2">
-                <Skeleton className="h-52 w-full rounded-xl" />
-                <Skeleton className="h-52 w-full rounded-xl" />
+            <div className="grid items-start gap-3 lg:grid-cols-3">
+                <Skeleton className="h-72 w-full lg:col-span-2" />
+                <Skeleton className="h-72 w-full" />
             </div>
-            <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
-                <div className="grid gap-4">
-                    {[0, 1, 2, 3].map((row) => (
-                        <div key={row} className="flex items-start gap-3">
-                            <Skeleton className="h-4 w-10 shrink-0" />
-                            <Skeleton className="size-7 shrink-0 rounded-full" />
-                            <Skeleton className="h-4 flex-1" />
-                        </div>
-                    ))}
-                </div>
-                <div className="grid gap-2">
-                    {[0, 1, 2].map((row) => (
-                        <Skeleton key={row} className="h-12 w-full" />
-                    ))}
-                </div>
-            </div>
+            <Skeleton className="h-64 w-full" />
         </div>
     );
 }
@@ -566,14 +574,50 @@ export function AgentHistory({ agentId }: { agentId: number }) {
 
     if (error && !history) {
         return (
-            <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
-                <p className="text-sm font-medium">Could not load the agent history.</p>
-                <p className="text-sm text-muted-foreground">{error}</p>
-                <div>
-                    <Button size="sm" variant="outline" onClick={() => void refresh()}>
-                        Try again
-                    </Button>
+            <div className="grid min-w-0 gap-3">
+                <div className="rounded-2xl border border-primary/15 bg-primary/[0.04]">
+                    <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
+                        <Link
+                            href="/customer-activation/telemarketing/telemarketing-agent-report"
+                            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+                            aria-label="Back to agent report"
+                        >
+                            <ArrowLeft className="size-4" aria-hidden="true" />
+                            Agent report
+                        </Link>
+                        <div className="flex items-center gap-2">
+                            <PeriodSelect
+                                value={period}
+                                options={PERIOD_OPTIONS}
+                                onChange={(value) => setPeriod(value as ReportPeriod)}
+                            />
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => void refresh()}
+                                aria-label="Refresh agent history"
+                            >
+                                <RefreshCw className="size-4" aria-hidden />
+                            </Button>
+                        </div>
+                    </div>
                 </div>
+                <Card className="shadow-none border-border/70 bg-card">
+                    <CardContent className="p-4 sm:p-5">
+                        <Alert variant="destructive">
+                            <AlertTitle>Could not load the agent history.</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-4"
+                            onClick={() => void refresh()}
+                        >
+                            Retry
+                        </Button>
+                    </CardContent>
+                </Card>
             </div>
         );
     }
@@ -584,85 +628,95 @@ export function AgentHistory({ agentId }: { agentId: number }) {
     const dayGroups = groupByDay(history.activities);
 
     return (
-        <div className="grid min-w-0 gap-6">
-            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-                <div className="grid min-w-0 gap-2">
-                    <Link
-                        href="/customer-activation/telemarketing/telemarketing-agent-report"
-                        className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
-                        aria-label="Back to agent report"
-                    >
-                        <ArrowLeft className="size-4" aria-hidden="true" />
-                        Agent report
-                    </Link>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        <div className="grid min-w-0 gap-3">
+            {/* Hero band */}
+            <div className="rounded-2xl border border-primary/15 bg-primary/[0.04]">
+                <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
+                    <div className="grid min-w-0 gap-1.5">
+                        <Link
+                            href="/customer-activation/telemarketing/telemarketing-agent-report"
+                            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+                            aria-label="Back to agent report"
+                        >
+                            <ArrowLeft className="size-4" aria-hidden="true" />
+                            Agent report
+                        </Link>
+                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                             {agent.display_name}
                         </h1>
-                        <code className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                            {agent.agent_code}
-                        </code>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <code className="rounded border border-border bg-background/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                                {agent.agent_code}
+                            </code>
+                            <span
+                                className="text-xs tabular-nums text-muted-foreground"
+                                aria-label={`Team rank ${history.rank.position} of ${history.rank.of}`}
+                            >
+                                #{history.rank.position} of {history.rank.of}
+                            </span>
+                            <StreakBadge days={history.streak_days} />
+                        </div>
                     </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    {/* Same control and default as the index list, so one agent's
+                    <div className="flex items-center gap-2">
+                        {/* Same control and default as the index list, so one agent's
                         row and page describe the same window. */}
-                    <PeriodSelect
-                        value={period}
-                        options={PERIOD_OPTIONS}
-                        onChange={(value) => setPeriod(value as ReportPeriod)}
-                    />
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => void refresh()}
-                        aria-label="Refresh agent history"
-                    >
-                        <RefreshCw
-                            className={cn("size-4", isLoading && "animate-spin")}
-                            aria-hidden
+                        <PeriodSelect
+                            value={period}
+                            options={PERIOD_OPTIONS}
+                            onChange={(value) => setPeriod(value as ReportPeriod)}
                         />
-                    </Button>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => void refresh()}
+                            aria-label="Refresh agent history"
+                        >
+                            <RefreshCw
+                                className={cn("size-4", isLoading && "animate-spin")}
+                                aria-hidden
+                            />
+                        </Button>
+                    </div>
                 </div>
             </div>
 
             {/* Period refetch keeps prior data on screen — no full-page flash. */}
             <div
                 aria-busy={isLoading}
-                className={cn("grid min-w-0 gap-6", isLoading && "opacity-70")}
+                className={cn("grid min-w-0 gap-3", isLoading && "opacity-70")}
             >
-                <SummaryBand history={history} />
+                <KpiBand history={history} />
 
-                <MixAndVersusCard history={history} />
-
-                {/* Scroll panes: each pane scrolls independently at lg (per-pane
-                max height, so the taller dashboard above never forces the
-                shell main to scroll); below lg the panes stack and the page
-                scrolls — no internal scroll, no horizontal overflow. */}
-                <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[2fr_1fr]">
-                    <section
-                        aria-label="Activity timeline"
-                        tabIndex={0}
-                        className="min-h-0 min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
-                    >
-                        <div className="flex items-center gap-2 lg:sticky lg:top-0 lg:z-20 lg:bg-background lg:py-2">
-                            <Activity className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            <h2 className="text-sm font-semibold">Activity</h2>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                                Showing {history.activities.length} entries ·{" "}
-                                {history.kpis.activities} stage moves
-                            </span>
-                        </div>
+                {/* Primary timeline + side claimed leads; merged mix/versus sits
+                full-width below so the donut and table keep room at 1440. */}
+                <div className="grid min-w-0 items-start gap-3 lg:grid-cols-3">
+                    <Card className="min-w-0 shadow-none border-border/70 bg-card lg:col-span-2">
+                        <CardHeader>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Activity className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                <h2 className="text-sm font-semibold leading-none">Activity</h2>
+                                <span className="text-xs tabular-nums text-muted-foreground">
+                                    Showing {history.activities.length} entries ·{" "}
+                                    {history.kpis.activities} stage moves
+                                </span>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div
+                                aria-label="Activity timeline"
+                                tabIndex={0}
+                                className="max-h-[62dvh] min-w-0 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
                         {history.activities.length === 0 ? (
                             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                                 <Activity className="size-4 shrink-0" aria-hidden="true" />
                                 No activity in this period.
                             </p>
                         ) : (
-                            <div className="mt-3 grid gap-5 lg:mt-1">
+                            <div className="grid gap-5">
                                 {dayGroups.map((group) => (
                                     <div key={group.key}>
-                                        <p className="sticky top-0 z-10 bg-background py-1 text-xs font-medium text-muted-foreground lg:top-9">
+                                        <p className="sticky top-0 z-10 bg-card py-1 text-xs font-medium text-muted-foreground">
                                             {group.label}
                                         </p>
                                         <ol className="mt-1">
@@ -762,27 +816,33 @@ export function AgentHistory({ agentId }: { agentId: number }) {
                                 ))}
                             </div>
                         )}
-                    </section>
+                            </div>
+                        </CardContent>
+                    </Card>
 
-                    <section
-                        aria-label="Claimed leads"
-                        tabIndex={0}
-                        className="min-h-0 min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 lg:max-h-[62dvh] lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
-                    >
-                        <div className="flex items-center gap-2 lg:sticky lg:top-0 lg:z-20 lg:bg-background lg:py-2">
-                            <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            <h2 className="text-sm font-semibold">Claimed leads</h2>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                                {history.leads_total}
-                            </span>
-                        </div>
+                    <Card className="min-w-0 shadow-none border-border/70 bg-card">
+                        <CardHeader>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                <h2 className="text-sm font-semibold leading-none">Claimed leads</h2>
+                                <span className="text-xs tabular-nums text-muted-foreground">
+                                    {history.leads_total}
+                                </span>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div
+                                aria-label="Claimed leads"
+                                tabIndex={0}
+                                className="max-h-[62dvh] min-w-0 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:outline-offset-2"
+                            >
                         {history.leads.length === 0 ? (
                             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                                 <Building2 className="size-4 shrink-0" aria-hidden="true" />
                                 No claimed leads in this period.
                             </p>
                         ) : (
-                            <ul className="mt-1 divide-y divide-border lg:mt-0">
+                            <ul className="divide-y divide-border">
                                 {history.leads.map((lead) => (
                                     <li
                                         key={lead.lead_id}
@@ -822,8 +882,12 @@ export function AgentHistory({ agentId }: { agentId: number }) {
                                 ))}
                             </ul>
                         )}
-                    </section>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
+
+                <MixAndVersusCard history={history} />
             </div>
         </div>
     );

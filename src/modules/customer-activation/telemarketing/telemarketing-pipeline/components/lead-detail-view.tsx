@@ -31,6 +31,7 @@ import { ActivityForm } from "./activity-form";
 import { ActivityTimeline } from "./activity-timeline";
 import { ClaimPanel } from "./claim-panel";
 import { useActivities } from "../hooks/use-activities";
+import { useClaims } from "../hooks/use-claims";
 import { useLeadRecord } from "../hooks/use-lead-record";
 import { useStages } from "../hooks/use-stages";
 import { moveLeadStage } from "../providers/stage-provider";
@@ -128,11 +129,19 @@ function StageCombobox({
   );
 }
 
-/** One lead: contact snapshot, source, tags, stage control, activity and claims. */
+/** One lead: hero, metric band, activity, claim, stage and contact. */
 export function LeadDetailView({ leadId }: { leadId: number }) {
   const { lead, tags, isLoading, error, refresh } = useLeadRecord(leadId);
   const { stages, isLoading: stagesLoading } = useStages();
-  const { activities, isLoading: activitiesLoading, isCreating, log } = useActivities(leadId);
+  const {
+    activities,
+    isLoading: activitiesLoading,
+    isCreating,
+    error: activitiesError,
+    refresh: refreshActivities,
+    log,
+  } = useActivities(leadId);
+  const { agentId, claimants } = useClaims(leadId);
   const [pendingLost, setPendingLost] = useState<Stage | null>(null);
   const [lostReason, setLostReason] = useState("");
   const [isMoving, setIsMoving] = useState(false);
@@ -149,11 +158,16 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
 
   if (isLoading) {
     return (
-      <div className="space-y-4" aria-live="polite">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <Skeleton className="h-64 w-full" />
-          <Skeleton className="h-48 w-full" />
+      <div className="mx-auto w-full max-w-[1600px] space-y-4" aria-label="Loading lead">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+        </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          <Skeleton className="h-72 w-full lg:col-span-2" />
+          <Skeleton className="h-72 w-full" />
         </div>
       </div>
     );
@@ -161,16 +175,18 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
 
   if (error) {
     return (
-      <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
-        <p className="text-sm font-medium">Could not load the lead.</p>
-        <p className="text-sm text-muted-foreground" role="alert">
-          {error}
-        </p>
-        <div>
-          <Button size="sm" variant="outline" onClick={() => void refresh()}>
-            <RefreshCw className="size-4" aria-hidden />
-            Retry
-          </Button>
+      <div className="mx-auto w-full max-w-[1600px]">
+        <div className="grid gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+          <p className="text-sm font-medium">Could not load the lead.</p>
+          <p className="text-sm text-muted-foreground" role="alert">
+            {error}
+          </p>
+          <div>
+            <Button size="sm" variant="outline" onClick={() => void refresh()}>
+              <RefreshCw className="size-4" aria-hidden />
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -225,163 +241,213 @@ export function LeadDetailView({ leadId }: { leadId: number }) {
     setLostReason("");
   };
 
+  const activeClaimants = claimants.length;
+  const claimedByMe =
+    agentId !== null && claimants.some((claimant) => claimant.agent_id === agentId);
+
   return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="min-w-0 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="min-h-11 md:min-h-0 -ml-2"
-            >
-              <Link href="/customer-activation/telemarketing/telemarketing-pipeline/pool">
-                <ArrowLeft className="size-4" aria-hidden />
-                Back to pool
-              </Link>
-            </Button>
-            <h1 className="mt-1 truncate text-lg font-semibold tracking-tight">
-              {lead.company_name}
-            </h1>
-            <p className="text-sm capitalize text-muted-foreground">
-              {lead.lead_code} · {lead.source.replace(/_/g, " ")}
-            </p>
-          </div>
+    <div className="mx-auto w-full max-w-[1600px] space-y-4">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 min-h-11 md:min-h-0">
+        <Link href="/customer-activation/telemarketing/telemarketing-pipeline/pool">
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to pool
+        </Link>
+      </Button>
+
+      <div className="rounded-2xl border border-primary/15 bg-primary/[0.04] p-4 sm:p-5">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Lead record (read-only)
+        </p>
+        <h1
+          className="mt-1 line-clamp-2 text-xl font-semibold tracking-tight break-words sm:text-2xl"
+          title={lead.company_name}
+        >
+          {lead.company_name}
+        </h1>
+        <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+          {lead.lead_code} · {lead.source.replace(/_/g, " ")}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {claimedByMe ? (
+            <StatusPill tone="info">Claimed by you</StatusPill>
+          ) : activeClaimants > 0 ? (
+            <StatusPill tone="neutral">
+              {activeClaimants} active claimant{activeClaimants === 1 ? "" : "s"}
+            </StatusPill>
+          ) : (
+            <StatusPill tone="neutral">Unclaimed</StatusPill>
+          )}
+          {tags.slice(0, 3).map((tag) => (
+            <span
+              key={tag.tag_id}
+              role="img"
+              aria-label={tag.tag_name}
+              title={tag.tag_name}
+              className="size-2.5 rounded-full border border-border"
+              style={{ backgroundColor: tag.color ?? "transparent" }}
+            />
+          ))}
+          {tags.length > 3 ? (
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              +{tags.length - 3}
+            </span>
+          ) : null}
         </div>
+      </div>
 
-        {tags.length > 0 ? (
-          <ul className="flex flex-wrap gap-1.5" aria-label="Lead tags">
-            {tags.map((tag) => (
-              <li key={tag.tag_id}>
-                <StatusPill tone="neutral">
-                  {tag.color ? (
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                      aria-hidden
-                    />
-                  ) : null}
-                  {tag.tag_name}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Card className="border-border/70 bg-card shadow-none">
+          <CardContent className="space-y-1 p-3 sm:p-4">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Activities logged
+            </p>
+            <p className="text-2xl font-semibold tabular-nums">{activities.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/70 bg-card shadow-none">
+          <CardContent className="space-y-1 p-3 sm:p-4">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Active claimants
+            </p>
+            <p className="text-2xl font-semibold tabular-nums">{activeClaimants}</p>
+          </CardContent>
+        </Card>
+        <Card className="col-span-2 border-border/70 bg-card shadow-none sm:col-span-1">
+          <CardContent className="space-y-1 p-3 sm:p-4">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Current stage
+            </p>
+            <p>
+              {currentStage ? (
+                <StatusPill tone={stageTone(currentStage)}>
+                  {currentStage.stage_name}
                 </StatusPill>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold leading-none">Log activity</h2>
-            <CardDescription>Every entry is stamped with your agent and time.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActivityForm onSubmit={log} isPending={isCreating} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold leading-none">Stage</h2>
-            <CardDescription>
-              A won or lost stage closes the lead and takes it out of the pool.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="lead-stage">Current stage</Label>
-              <StageCombobox
-                value={String(lead.stage_id)}
-                stages={stages}
-                disabled={stagesLoading || isMoving}
-                onValueChange={handleStageChange}
-              />
-              <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                <span>Now in{" "}</span>
-                {currentStage ? (
-                  <StatusPill tone={stageTone(currentStage)}>{currentStage.stage_name}</StatusPill>
-                ) : (
-                  "an unknown stage"
-                )}
-              </p>
-            </div>
-
-            {pendingLost ? (
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <Label htmlFor="lead-lost-reason">Lost reason</Label>
-                <Textarea
-                  id="lead-lost-reason"
-                  rows={3}
-                  value={lostReason}
-                  onChange={(event) => setLostReason(event.target.value)}
-                  placeholder="Why was this lead lost?"
-                  className="resize-none"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    className="min-h-11 md:min-h-0"
-                    disabled={!lostReason.trim() || isMoving}
-                    onClick={() => void confirmLost()}
-                  >
-                    Move to {pendingLost.stage_name}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="min-h-11 md:min-h-0"
-                    onClick={() => setPendingLost(null)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {lead.lost_reason ? (
-              <p className="text-sm text-muted-foreground">
-                Lost reason: {lead.lost_reason}
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold leading-none">Contact</h2>
-            <CardDescription>The details captured when the lead was created.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <Field label="Company" value={lead.company_name} />
-              <Field label="Contact" value={lead.contact_name} />
-              <Field label="Position" value={lead.contact_position} />
-              <Field label="Mobile" value={lead.mobile} />
-              <Field label="Email" value={lead.email} />
-              <Field label="Address" value={lead.address} />
-              <Field label="Industry" value={lead.industry} />
-              <Field label="Product interest" value={lead.product_interest} />
-              <Field label="Need" value={lead.need} />
-              <Field label="Referral code" value={lead.referral_code} />
-              <Field label="Campaign code" value={lead.campaign_code} />
-            </dl>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold leading-none">Activity</h2>
-            <CardDescription>
-              Calls, emails and visits logged against this lead.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActivityTimeline activities={activities} isLoading={activitiesLoading} />
+              ) : (
+                <StatusPill tone="neutral">Unknown stage</StatusPill>
+              )}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="min-w-0 space-y-4">
-        <ClaimPanel leadId={lead.lead_id} />
+      <div className="grid items-start gap-3 lg:grid-cols-3">
+        <Card className="border-border/70 bg-card shadow-none lg:col-span-2">
+          <CardHeader>
+            <h2 className="font-semibold leading-none">Current activity</h2>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {activitiesError ? (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive" role="alert">
+                  {activitiesError}
+                </p>
+                <Button size="sm" variant="outline" onClick={() => void refreshActivities()}>
+                  <RefreshCw className="size-4" aria-hidden />
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <ActivityTimeline activities={activities} isLoading={activitiesLoading} />
+            )}
+            <div className="border-t border-border pt-4">
+              <ActivityForm onSubmit={log} isPending={isCreating} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="min-w-0 space-y-3">
+          <ClaimPanel leadId={lead.lead_id} />
+
+          <Card className="border-border/70 bg-card shadow-none">
+            <CardHeader>
+              <h2 className="font-semibold leading-none">Stage</h2>
+              <CardDescription>
+                A won or lost stage closes the lead and takes it out of the pool.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="lead-stage">Current stage</Label>
+                <StageCombobox
+                  value={String(lead.stage_id)}
+                  stages={stages}
+                  disabled={stagesLoading || isMoving}
+                  onValueChange={handleStageChange}
+                />
+                <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>Now in </span>
+                  {currentStage ? (
+                    <StatusPill tone={stageTone(currentStage)}>
+                      {currentStage.stage_name}
+                    </StatusPill>
+                  ) : (
+                    "an unknown stage"
+                  )}
+                </p>
+              </div>
+
+              {pendingLost ? (
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <Label htmlFor="lead-lost-reason">Lost reason</Label>
+                  <Textarea
+                    id="lead-lost-reason"
+                    rows={3}
+                    value={lostReason}
+                    onChange={(event) => setLostReason(event.target.value)}
+                    placeholder="Why was this lead lost?"
+                    className="resize-none"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="min-h-11 md:min-h-0"
+                      disabled={!lostReason.trim() || isMoving}
+                      onClick={() => void confirmLost()}
+                    >
+                      Move to {pendingLost.stage_name}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11 md:min-h-0"
+                      onClick={() => setPendingLost(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {lead.lost_reason ? (
+                <p className="text-sm text-muted-foreground">
+                  Lost reason: {lead.lost_reason}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/70 bg-card shadow-none">
+            <CardHeader>
+              <h2 className="font-semibold leading-none">Contact</h2>
+              <CardDescription>The details captured when the lead was created.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <Field label="Company" value={lead.company_name} />
+                <Field label="Contact" value={lead.contact_name} />
+                <Field label="Position" value={lead.contact_position} />
+                <Field label="Mobile" value={lead.mobile} />
+                <Field label="Email" value={lead.email} />
+                <Field label="Address" value={lead.address} />
+                <Field label="Industry" value={lead.industry} />
+                <Field label="Product interest" value={lead.product_interest} />
+                <Field label="Need" value={lead.need} />
+                <Field label="Referral code" value={lead.referral_code} />
+                <Field label="Campaign code" value={lead.campaign_code} />
+              </dl>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

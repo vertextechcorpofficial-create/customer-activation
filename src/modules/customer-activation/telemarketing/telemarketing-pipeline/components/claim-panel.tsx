@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, UserMinus, UserPlus } from "lucide-react";
+import { Loader2, RefreshCw, UserMinus, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -35,7 +35,7 @@ function formatClaimedAt(value: string): string {
 
 /** Who is working this lead — claim or release it for the signed-in agent. */
 export function ClaimPanel({ leadId }: { leadId: number }) {
-  const { agentId, claimants, isLoading, error, claim, release } = useClaims(leadId);
+  const { agentId, claimants, isLoading, error, refresh, claim, release } = useClaims(leadId);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mine = agentId !== null && claimants.some((c) => c.agent_id === agentId);
@@ -50,11 +50,11 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
   };
 
   return (
-    <Card>
+    <Card className="border-border/70 bg-card shadow-none">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 font-semibold leading-none">
-            Claimants
+            Claim
             <StatusPill tone="neutral" className="rounded-full tabular-nums">
               {claimants.length}
             </StatusPill>
@@ -88,14 +88,17 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
             ))}
           </div>
         ) : error ? (
-          <p className="py-6 text-center text-sm text-destructive" role="alert">
-            {error}
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+            <Button size="sm" variant="outline" onClick={() => void refresh()}>
+              <RefreshCw className="size-4" aria-hidden />
+              Retry
+            </Button>
+          </div>
         ) : claimants.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No one has claimed this lead. Use Claim above to start working it — other agents can join
-            you later.
-          </p>
+          <p className="text-sm text-muted-foreground">Unclaimed — claim to start work.</p>
         ) : (
           <ul className="divide-y divide-border">
             {claimants.map((claimant) => {
