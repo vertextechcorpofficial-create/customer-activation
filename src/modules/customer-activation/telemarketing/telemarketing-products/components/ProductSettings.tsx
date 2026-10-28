@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import type { Product } from "../types/product.schema";
 import { useProducts } from "../hooks/use-products";
 
@@ -47,18 +48,20 @@ function ProductStatus({ product }: { product: Product }) {
 interface FormState {
     product_code: string;
     name: string;
+    description: string;
     sort_order: string;
     is_active: boolean;
 }
 
-type FormErrors = Partial<Record<"product_code" | "name" | "sort_order", string>>;
+type FormErrors = Partial<Record<"product_code" | "name" | "description" | "sort_order", string>>;
 
-const EMPTY_FORM: FormState = { product_code: "", name: "", sort_order: "0", is_active: true };
+const EMPTY_FORM: FormState = { product_code: "", name: "", description: "", sort_order: "0", is_active: true };
 
 function formFrom(product: Product): FormState {
     return {
         product_code: product.product_code,
         name: product.name,
+        description: product.description ?? "",
         sort_order: String(product.sort_order),
         is_active: flagOn(product.is_active),
     };
@@ -140,6 +143,8 @@ export function ProductSettings() {
         const next: FormErrors = {};
         if (!form.product_code.trim()) next.product_code = "Enter a product code.";
         if (!form.name.trim()) next.name = "Enter a product name.";
+        if (form.description.trim().length > 500)
+            next.description = "Description must be 500 characters or fewer.";
         if (!/^\d+$/.test(form.sort_order.trim())) next.sort_order = "Sort order must be a whole number.";
         setErrors(next);
         return Object.keys(next).length === 0;
@@ -149,9 +154,11 @@ export function ProductSettings() {
         event.preventDefault();
         if (!dialog || submitting || !validate()) return;
         setSubmitting(true);
+        const trimmedDescription = form.description.trim();
         const payload = {
             product_code: form.product_code.trim(),
             name: form.name.trim(),
+            description: trimmedDescription === "" ? null : trimmedDescription,
             sort_order: Number(form.sort_order.trim()),
             is_active: form.is_active,
         };
@@ -244,6 +251,14 @@ export function ProductSettings() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="font-medium break-words">{product.name}</p>
+                                                {product.description ? (
+                                                    <p
+                                                        className="truncate text-xs text-muted-foreground"
+                                                        title={product.description}
+                                                    >
+                                                        {product.description}
+                                                    </p>
+                                                ) : null}
                                                 <p className="font-mono text-xs text-muted-foreground break-words">
                                                     {product.product_code}
                                                 </p>
@@ -286,8 +301,18 @@ export function ProductSettings() {
                                                 >
                                                     {product.product_code}
                                                 </TableCell>
-                                                <TableCell className="max-w-64 truncate" title={product.name}>
-                                                    {product.name}
+                                                <TableCell className="max-w-64">
+                                                    <p className="truncate" title={product.name}>
+                                                        {product.name}
+                                                    </p>
+                                                    {product.description ? (
+                                                        <p
+                                                            className="truncate text-xs text-muted-foreground"
+                                                            title={product.description}
+                                                        >
+                                                            {product.description}
+                                                        </p>
+                                                    ) : null}
                                                 </TableCell>
                                                 <TableCell className="tabular-nums">{product.sort_order}</TableCell>
                                                 <TableCell>
@@ -366,6 +391,34 @@ export function ProductSettings() {
                                 {errors.name && (
                                     <p id="product-name-error" className="text-xs text-destructive">
                                         {errors.name}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="grid gap-2">
+                                <div className="flex items-baseline justify-between gap-2">
+                                    <Label htmlFor="product-description">Description</Label>
+                                    <span
+                                        className="text-xs tabular-nums text-muted-foreground"
+                                        aria-live="polite"
+                                    >
+                                        {form.description.trim().length}/500
+                                    </span>
+                                </div>
+                                <Textarea
+                                    id="product-description"
+                                    value={form.description}
+                                    onChange={(e) => setField("description", e.target.value)}
+                                    placeholder="Short copy shown on the website, e.g. what this plan includes."
+                                    maxLength={500}
+                                    rows={3}
+                                    aria-invalid={Boolean(errors.description)}
+                                    aria-describedby={
+                                        errors.description ? "product-description-error" : undefined
+                                    }
+                                />
+                                {errors.description && (
+                                    <p id="product-description-error" className="text-xs text-destructive">
+                                        {errors.description}
                                     </p>
                                 )}
                             </div>

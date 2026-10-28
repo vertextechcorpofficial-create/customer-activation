@@ -75,6 +75,7 @@ function productPatch(input: ProductUpdate, actorId: number | null): Record<stri
     const patch: Record<string, unknown> = { updated_by: actorId, updated_at: phNow() };
     if (input.product_code !== undefined) patch.product_code = input.product_code.trim();
     if (input.name !== undefined) patch.name = input.name.trim();
+    if (input.description !== undefined) patch.description = input.description;
     if (input.sort_order !== undefined) patch.sort_order = input.sort_order;
     if (input.is_active !== undefined) patch.is_active = input.is_active ? 1 : 0;
     return patch;
@@ -99,6 +100,7 @@ export async function createProduct(input: ProductCreate, actorId: number | null
         body: JSON.stringify({
             product_code: input.product_code.trim(),
             name: input.name.trim(),
+            description: input.description ?? null,
             sort_order: input.sort_order ?? 0,
             is_active: input.is_active ? 1 : 0,
             created_by: actorId,

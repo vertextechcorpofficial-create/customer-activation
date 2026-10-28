@@ -26,6 +26,7 @@ export const ProductSchema = z.object({
     product_id: z.number().int(),
     product_code: z.string().min(1).max(64),
     name: z.string().min(1).max(191),
+    description: z.string().max(500).nullable(),
     is_active: DbFlagSchema,
     sort_order: z.number().int(),
     created_by: z.number().int().nullable().optional(),
@@ -34,9 +35,19 @@ export const ProductSchema = z.object({
     updated_at: PhTimestampSchema,
 });
 
+const DescriptionValueSchema = z.union([
+    z
+        .string()
+        .trim()
+        .max(500, "Description must be 500 characters or fewer.")
+        .transform((v) => (v === "" ? null : v)),
+    z.null(),
+]);
+
 export const ProductCreateSchema = z.object({
     product_code: z.string().min(1).max(64),
     name: z.string().min(1).max(191),
+    description: DescriptionValueSchema.optional().default(null),
     sort_order: z.number().int().min(0).default(0),
     is_active: z.boolean().default(true),
 });
