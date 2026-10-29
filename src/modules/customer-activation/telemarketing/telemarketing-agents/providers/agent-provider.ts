@@ -43,16 +43,20 @@ export interface AgentPageResult {
     limit: number;
 }
 
+export type AgentStatusFilter = "all" | "active" | "inactive";
+
 export function getAgentsPage(params: {
     page: number;
     limit: number;
     search?: string;
+    status?: AgentStatusFilter;
 }): Promise<AgentPageResult> {
     const qs = new URLSearchParams({
         page: String(params.page),
         limit: String(params.limit),
     });
     if (params.search?.trim()) qs.set("search", params.search.trim());
+    if (params.status && params.status !== "all") qs.set("status", params.status);
     return requestEnvelope<AgentView[]>(`${BASE}?${qs.toString()}`).then((body) => ({
         items: body.data ?? [],
         total: body.meta?.total ?? body.data?.length ?? 0,

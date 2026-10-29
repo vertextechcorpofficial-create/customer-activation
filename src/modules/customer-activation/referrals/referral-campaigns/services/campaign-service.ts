@@ -91,12 +91,55 @@ function campaignPatch(input: CampaignUpdate, actorId: number | null): Record<st
 /**
  * Every campaign, active first by title. Inactive ones stay
  * listed so they can be reactivated.
+ *
+ * Without paging options returns the whole collection (limit=-1) so existing
+ * callers that read the full list keep working. With paging options returns
+ * one page; `total` is the Directus `filter_count`, never the page length.
+ * Pattern follows `telemarketing-tags/services/tag-service.ts` (`listTags`).
  */
-export async function listCampaigns(): Promise<Campaign[]> {
+export interface CampaignPage {
+    items: Campaign[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export async function listCampaigns(opts: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: "active" | "inactive";
+    paged?: boolean;
+} = {}): Promise<CampaignPage> {
+    const paged = opts.paged ?? (opts.page !== undefined || opts.limit !== undefined);
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    const search = opts.search?.trim() ?? "";
+
+    const and: Record<string, unknown>[] = [];
+    if (opts.status === "active") and.push({ is_active: { _eq: 1 } });
+    else if (opts.status === "inactive") and.push({ is_active: { _eq: 0 } });
+    if (search) {
+        and.push({
+            _or: [{ campaign_code: { _icontains: search } }, { title: { _icontains: search } }],
+        });
+    }
+    const filter =
+        and.length > 0
+            ? `&filter=${encodeURIComponent(JSON.stringify(and.length === 1 ? and[0] : { _and: and }))}`
+            : "";
+
+    const paging = paged ? `limit=${limit}&offset=${(page - 1) * limit}` : "limit=-1";
     const body = await request<Campaign[]>(
-        `/items/${COLLECTION}?fields=*&sort=-is_active,title&limit=-1`,
+        `/items/${COLLECTION}?fields=*&sort=-is_active,title&${paging}&meta=filter_count${filter}`,
     );
-    return body.data ?? [];
+    const items = body.data ?? [];
+    return {
+        items,
+        total: body.meta?.filter_count ?? items.length,
+        page,
+        limit: paged ? limit : items.length,
+    };
 }
 
 export async function createCampaign(input: CampaignCreate, actorId: number | null): Promise<Campaign> {

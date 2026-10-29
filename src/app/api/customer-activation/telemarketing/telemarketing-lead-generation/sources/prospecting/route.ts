@@ -11,6 +11,7 @@ const COOKIE_NAME = "vos_access_token";
 const QuerySchema = z.object({
     dealerId: z.coerce.number().int().positive(),
     search: z.string().max(191).optional(),
+    contact: z.enum(["with", "missing"]).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(10),
 });
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
     const parsed = QuerySchema.safeParse({
         dealerId: query.get("dealerId") || undefined,
         search: query.get("search") || undefined,
+        contact: query.get("contact") || undefined,
         page: query.get("page") || undefined,
         limit: query.get("limit") || undefined,
     });
@@ -36,6 +38,7 @@ export async function GET(req: NextRequest) {
     try {
         const data = await clientProspects(parsed.data.dealerId, {
             search: parsed.data.search,
+            contact: parsed.data.contact,
             page: parsed.data.page,
             limit: parsed.data.limit,
         });

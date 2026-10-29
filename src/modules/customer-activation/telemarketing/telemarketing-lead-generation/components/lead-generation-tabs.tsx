@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Plus, Search, Users } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
     Command,
@@ -141,7 +142,7 @@ function ClientCombobox({
                     aria-expanded={open}
                     aria-label="Select client database"
                     disabled={isLoading}
-                    className="w-full justify-between font-normal sm:max-w-xs"
+                    className="w-full justify-between font-normal sm:w-64"
                 >
                     <span className="min-w-0 flex-1 truncate text-left" title={label}>
                         {isLoading ? "Loading clients…" : label}
@@ -659,21 +660,23 @@ function SourcePanel({
     kind,
     dealerId,
     search,
+    contact,
+    isFiltered,
     page,
     pageSize,
     onPageChange,
     onPageSizeChange,
-    onTotal,
     onCreate,
 }: {
     kind: SourceKind;
     dealerId: number;
     search: string;
+    contact: "with" | "missing" | "all";
+    isFiltered: boolean;
     page: number;
     pageSize: number;
     onPageChange: (page: number) => void;
     onPageSizeChange: (size: number) => void;
-    onTotal: (total: number | null) => void;
     onCreate: (row: SourceRow) => void;
 }) {
     const { result, isLoading, error, refresh } = useClientSource(
@@ -682,6 +685,7 @@ function SourcePanel({
         search,
         page,
         pageSize,
+        contact,
     );
     const nouns = kind === "customer" ? "customers" : "prospects";
     const emptyTitle =
@@ -696,11 +700,6 @@ function SourcePanel({
         if (page > pageCount) onPageChange(pageCount);
     }, [page, pageCount, onPageChange]);
 
-    // The page header needs the count; this panel is the only subscriber.
-    useEffect(() => {
-        onTotal(result?.status === "ok" ? result.total : result?.status === "empty" ? 0 : null);
-    }, [onTotal, result]);
-
     if (result?.status === "ok") {
         // Stale-while-revalidate: the hook keeps the previous result during a
         // refetch, so the table never blanks. An out-of-range page briefly
@@ -708,7 +707,7 @@ function SourcePanel({
         if (result.rows.length === 0 && result.total > 0) return <PanelSkeleton rows={pageSize} />;
         return (
             <SourceTable
-                key={`${kind}-${dealerId}-${search}-${pageSize}`}
+                key={`${kind}-${dealerId}-${search}-${pageSize}-${contact}`}
                 kind={kind}
                 rows={result.rows}
                 total={result.total}
@@ -731,8 +730,9 @@ function SourcePanel({
                     </EmptyMedia>
                     <EmptyTitle>{emptyTitle}</EmptyTitle>
                     <EmptyDescription>
-                        This database is connected — it just holds no {nouns} for this
-                        search yet.
+                        {isFiltered
+                            ? `No ${nouns} match these filters — try a different search or clear the filters.`
+                            : `This database is connected — it just holds no ${nouns} yet.`}
                     </EmptyDescription>
                 </EmptyHeader>
             </Empty>
@@ -782,6 +782,8 @@ export function LeadGenerationTabs() {
     const pathname = usePathname();
     const [search, setSearch] = useState("");
     const [debouncedSearch] = useDebounce(search, 300);
+    const [contactFilter, setContactFilter] = useState<"all" | "with" | "missing">("all");
+    const [refreshNonce, setRefreshNonce] = useState(0);
     const [pageSize, setPageSize] = useState<number>(SOURCE_PAGE_SIZE);
     const [customerPage, setCustomerPage] = useState(1);
     const [prospectingPage, setProspectingPage] = useState(1);
@@ -794,9 +796,7 @@ export function LeadGenerationTabs() {
     const [prefill, setPrefill] = useState<LeadPrefill | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [tab, setTab] = useState<SourceKind>("customer");
-    const [customerTotal, setCustomerTotal] = useState<number | null>(null);
-    const [prospectingTotal, setProspectingTotal] = useState<number | null>(null);
-    const activeTotal = tab === "customer" ? customerTotal : prospectingTotal;
+    const hasFilter = search.trim() !== "" || contactFilter !== "all";
 
     const { clients, isLoading: clientsLoading, error: clientsError, refresh: refreshClients } =
         useClients();
@@ -840,11 +840,18 @@ export function LeadGenerationTabs() {
         writeClientParam(resolved);
     }, [resolved, writeClientParam]);
 
-    // A new settled search starts both tabs back on the first page (render-time
-    // adjustment, not an effect — the sanctioned reset-on-key-change shape).
+    // A new settled search or contact filter starts both tabs back on the
+    // first page (render-time adjustment, not an effect — the sanctioned
+    // reset-on-key-change shape).
     const [lastSearch, setLastSearch] = useState(debouncedSearch);
     if (debouncedSearch !== lastSearch) {
         setLastSearch(debouncedSearch);
+        setCustomerPage(1);
+        setProspectingPage(1);
+    }
+    const [lastContact, setLastContact] = useState(contactFilter);
+    if (contactFilter !== lastContact) {
+        setLastContact(contactFilter);
         setCustomerPage(1);
         setProspectingPage(1);
     }
@@ -864,8 +871,16 @@ export function LeadGenerationTabs() {
 
     function resetFilters() {
         setSearch("");
+        setContactFilter("all");
         setCustomerPage(1);
         setProspectingPage(1);
+    }
+
+    // Refresh remounts the visible panel (its hook refetches on mount) and
+    // reloads the client registry. Selection resets — same as the reference.
+    function refreshAll() {
+        setRefreshNonce((n) => n + 1);
+        void refreshClients();
     }
 
     function openFor(row: SourceRow) {
@@ -882,43 +897,6 @@ export function LeadGenerationTabs() {
 
     return (
         <div className="grid gap-4">
-            {activeTotal !== null ? (
-                <p className="text-sm text-muted-foreground tabular-nums">
-                    {activeTotal.toLocaleString()} {tab === "customer" ? "customer" : "prospect"}
-                    {activeTotal === 1 ? "" : "s"}
-                </p>
-            ) : null}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative w-full sm:max-w-xs">
-                    <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search name, code, contact…"
-                        aria-label="Search sources"
-                        className="pl-8"
-                    />
-                </div>
-                {search.trim() ? (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetFilters}
-                        className="self-start sm:self-auto"
-                    >
-                        Reset
-                    </Button>
-                ) : null}
-                <ClientCombobox
-                    clients={clients}
-                    value={resolved ?? null}
-                    onChange={pickClient}
-                    isLoading={clientsLoading}
-                    error={clientsError}
-                    onRetry={() => void refreshClients()}
-                />
-            </div>
-
             {clientsLoading ? (
                 <PanelSkeleton rows={pageSize} />
             ) : clientsError && clients.length === 0 ? (
@@ -942,48 +920,114 @@ export function LeadGenerationTabs() {
                     </EmptyHeader>
                 </Empty>
             ) : (
-                <Tabs value={tab} onValueChange={(value) => setTab(value as SourceKind)}>
-                    <TabsList>
-                        <TabsTrigger value="customer" className="min-h-11 md:min-h-0">
-                            Customer
-                        </TabsTrigger>
-                        <TabsTrigger value="prospecting" className="min-h-11 md:min-h-0">
-                            Prospecting
-                        </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="customer" className="grid gap-2">
-                        <SourcePanel
-                            kind="customer"
-                            dealerId={resolved}
-                            search={debouncedSearch}
-                            page={customerPage}
-                            pageSize={pageSize}
-                            onPageChange={setCustomerPage}
-                            onPageSizeChange={changePageSize}
-                            onTotal={setCustomerTotal}
-                            onCreate={openFor}
-                        />
-                    </TabsContent>
-                    <TabsContent value="prospecting" className="grid gap-2">
-                        <div className="flex justify-end">
-                            <Button size="sm" onClick={() => openBlank("prospecting")}>
-                                <Plus className="size-4" aria-hidden />
-                                Add prospect
+                <Card className="gap-0 overflow-hidden py-0">
+                    <div className="flex flex-col gap-2 px-4 py-2 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="relative w-full lg:max-w-xs">
+                            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search name, code, contact…"
+                                aria-label="Search sources"
+                                className="pl-8"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            <Select
+                                value={contactFilter}
+                                onValueChange={(value) =>
+                                    setContactFilter(value as typeof contactFilter)
+                                }
+                            >
+                                <SelectTrigger
+                                    className="w-full sm:w-[150px]"
+                                    aria-label="Filter by contact"
+                                >
+                                    <SelectValue placeholder="Contact" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All contacts</SelectItem>
+                                    <SelectItem value="with">With contact</SelectItem>
+                                    <SelectItem value="missing">Missing contact</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <ClientCombobox
+                                clients={clients}
+                                value={resolved ?? null}
+                                onChange={pickClient}
+                                isLoading={clientsLoading}
+                                error={clientsError}
+                                onRetry={() => void refreshClients()}
+                            />
+                            {hasFilter ? (
+                                <Button variant="ghost" size="sm" onClick={resetFilters}>
+                                    Reset
+                                </Button>
+                            ) : null}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={refreshAll}
+                                aria-label="Refresh sources"
+                            >
+                                <RefreshCw className="size-4" aria-hidden />
+                                Refresh
                             </Button>
                         </div>
-                        <SourcePanel
-                            kind="prospecting"
-                            dealerId={resolved}
-                            search={debouncedSearch}
-                            page={prospectingPage}
-                            pageSize={pageSize}
-                            onPageChange={setProspectingPage}
-                            onPageSizeChange={changePageSize}
-                            onTotal={setProspectingTotal}
-                            onCreate={openFor}
-                        />
-                    </TabsContent>
-                </Tabs>
+                    </div>
+
+                    <Tabs value={tab} onValueChange={(value) => setTab(value as SourceKind)}>
+                        <div className="px-4 sm:px-6">
+                            <TabsList>
+                                <TabsTrigger value="customer" className="min-h-11 md:min-h-0">
+                                    Customer
+                                </TabsTrigger>
+                                <TabsTrigger value="prospecting" className="min-h-11 md:min-h-0">
+                                    Prospecting
+                                </TabsTrigger>
+                            </TabsList>
+                        </div>
+                        <TabsContent value="customer" className="grid gap-2 px-4 pb-4 sm:px-6 sm:pb-6">
+                            <SourcePanel
+                                key={`customer-${resolved}-${refreshNonce}`}
+                                kind="customer"
+                                dealerId={resolved}
+                                search={debouncedSearch}
+                                contact={contactFilter}
+                                isFiltered={hasFilter}
+                                page={customerPage}
+                                pageSize={pageSize}
+                                onPageChange={setCustomerPage}
+                                onPageSizeChange={changePageSize}
+                                onCreate={openFor}
+                            />
+                        </TabsContent>
+                        <TabsContent
+                            value="prospecting"
+                            className="grid gap-2 px-4 pb-4 sm:px-6 sm:pb-6"
+                        >
+                            <div className="flex justify-end">
+                                <Button size="sm" onClick={() => openBlank("prospecting")}>
+                                    <Plus className="size-4" aria-hidden />
+                                    Add prospect
+                                </Button>
+                            </div>
+                            <SourcePanel
+                                key={`prospecting-${resolved}-${refreshNonce}`}
+                                kind="prospecting"
+                                dealerId={resolved}
+                                search={debouncedSearch}
+                                contact={contactFilter}
+                                isFiltered={hasFilter}
+                                page={prospectingPage}
+                                pageSize={pageSize}
+                                onPageChange={setProspectingPage}
+                                onPageSizeChange={changePageSize}
+                                onCreate={openFor}
+                            />
+                        </TabsContent>
+                    </Tabs>
+                </Card>
             )}
 
             <CreateLeadDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={prefill} />

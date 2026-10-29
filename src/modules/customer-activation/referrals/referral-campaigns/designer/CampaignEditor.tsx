@@ -34,6 +34,41 @@ function normaliseContentJson(value: unknown): string {
     }
 }
 
+function CanvasHeightField({ value, onCommit }: { readonly value: number; readonly onCommit: (next: number) => void }) {
+    // Draft-value pattern: while focused the field renders exactly what was
+    // typed (digits or empty) and only parses/clamps on blur or Enter.
+    const [draft, setDraft] = useState<string | null>(null);
+    const commit = (raw: string): void => {
+        const trimmed = raw.trim();
+        if (/^\d+$/.test(trimmed)) {
+            onCommit(clampCanvasHeight(Number(trimmed)));
+        }
+        setDraft(null);
+    };
+    return (
+        <Input
+            aria-describedby="campaign-canvas-height-hint"
+            className="h-8 w-24 text-xs tabular-nums"
+            id="campaign-canvas-height"
+            inputMode="numeric"
+            max={CAMPAIGN_CANVAS.maxHeight}
+            min={CAMPAIGN_CANVAS.minHeight}
+            step={100}
+            type="number"
+            value={draft ?? String(value)}
+            onChange={(event) => {
+                // Reject non-numeric characters without rewriting the draft.
+                if (/^\d*$/.test(event.target.value)) setDraft(event.target.value);
+            }}
+            onFocus={(event) => setDraft(event.target.value)}
+            onBlur={(event) => commit(event.target.value)}
+            onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+            }}
+        />
+    );
+}
+
 export function CampaignEditor({ campaignId }: { readonly campaignId: number }) {
     const [store] = useState(() => createCampaignDocStore());
     const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -319,21 +354,7 @@ export function CampaignEditor({ campaignId }: { readonly campaignId: number }) 
             <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b bg-card px-3 py-2">
                 <div className="flex items-center gap-2">
                     <Label className="text-xs font-medium text-muted-foreground" htmlFor="campaign-canvas-height">Page height</Label>
-                    <Input
-                        aria-describedby="campaign-canvas-height-hint"
-                        className="h-8 w-24 text-xs tabular-nums"
-                        id="campaign-canvas-height"
-                        inputMode="numeric"
-                        max={CAMPAIGN_CANVAS.maxHeight}
-                        min={CAMPAIGN_CANVAS.minHeight}
-                        step={100}
-                        type="number"
-                        value={canvasHeight}
-                        onChange={(event) => {
-                            const parsed = Number(event.target.value);
-                            if (Number.isFinite(parsed)) setCanvasHeight(clampCanvasHeight(parsed));
-                        }}
-                    />
+                    <CanvasHeightField value={canvasHeight} onCommit={setCanvasHeight} />
                 </div>
                 <p id="campaign-canvas-height-hint" className="text-[11px] text-muted-foreground">
                     {CAMPAIGN_CANVAS.minHeight}–{CAMPAIGN_CANVAS.maxHeight}px, width fixed at {CAMPAIGN_CANVAS.width}px.

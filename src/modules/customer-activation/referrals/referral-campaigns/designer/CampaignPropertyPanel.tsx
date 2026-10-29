@@ -48,10 +48,29 @@ function NumericField({ label, value, step, min, max, onCommit }: { readonly lab
     const id = useId();
     const [draft, setDraft] = useState(String(value));
     const [prev, setPrev] = useState(value);
+    const [focused, setFocused] = useState(false);
     if (prev !== value) {
         setPrev(value);
-        setDraft(String(value));
+        // Do not clobber text being typed; resync once the field is not focused.
+        if (!focused) setDraft(String(value));
     }
+    const commitDraft = (raw: string): void => {
+        const trimmed = raw.trim();
+        if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+            // Empty or non-numeric: restore the last committed value.
+            setDraft(String(value));
+            return;
+        }
+        const parsed = Number(trimmed);
+        if (!Number.isFinite(parsed)) {
+            setDraft(String(value));
+            return;
+        }
+        const floored = min !== undefined ? Math.max(min, parsed) : parsed;
+        const clamped = max !== undefined ? Math.min(max, floored) : floored;
+        setDraft(String(clamped));
+        if (clamped !== value) onCommit(clamped);
+    };
     const stepValue = step ?? 1;
     const nudge = (direction: 1 | -1): void => {
         const trimmed = draft.trim();
@@ -79,10 +98,18 @@ function NumericField({ label, value, step, min, max, onCommit }: { readonly lab
                     type="number"
                     value={draft}
                     onChange={(event) => {
-                        setDraft(event.target.value);
-                        if (event.target.value.trim() === "") return;
-                        const parsed = Number(event.target.value);
-                        if (Number.isFinite(parsed)) onCommit(parsed);
+                        // While focused accept any numeric sequence and the empty
+                        // string verbatim; reject anything else without rewriting.
+                        const next = event.target.value;
+                        if (next === "" || /^-?\d*(\.\d*)?$/.test(next)) setDraft(next);
+                    }}
+                    onFocus={() => setFocused(true)}
+                    onBlur={(event) => {
+                        setFocused(false);
+                        commitDraft(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
                     }}
                 />
                 <div className="absolute right-1 top-1/2 flex -translate-y-1/2 flex-col overflow-hidden rounded">

@@ -53,15 +53,21 @@ const inflight = new Map<string, Promise<SourceResult>>();
 function loadSource(
     kind: ClientSourceKind,
     dealerId: number,
-    params: { search: string; page: number; limit: number },
+    params: { search: string; page: number; limit: number; contact: "with" | "missing" | "all" },
 ): Promise<SourceResult> {
-    const key = `${kind}|${dealerId}|${params.search}|${params.page}|${params.limit}`;
+    const key = `${kind}|${dealerId}|${params.search}|${params.page}|${params.limit}|${params.contact}`;
     const existing = inflight.get(key);
     if (existing) return existing;
+    const paging = {
+        search: params.search,
+        page: params.page,
+        limit: params.limit,
+        ...(params.contact === "all" ? {} : { contact: params.contact as "with" | "missing" }),
+    };
     const request = (
         kind === "customer"
-            ? fetchCustomerSource(dealerId, params)
-            : fetchProspectingSource(dealerId, params)
+            ? fetchCustomerSource(dealerId, paging)
+            : fetchProspectingSource(dealerId, paging)
     ).finally(() => {
         if (inflight.get(key) === request) inflight.delete(key);
     });
@@ -82,6 +88,7 @@ export function useClientSource(
     search = "",
     page = 1,
     pageSize = SOURCE_PAGE_SIZE,
+    contact: "with" | "missing" | "all" = "all",
 ) {
     const [result, setResult] = useState<SourceResult | null>(null);
     const [isLoading, setIsLoading] = useState(dealerId !== null);
@@ -98,7 +105,7 @@ export function useClientSource(
         setIsLoading(true);
         setError(null);
         try {
-            const next = await loadSource(kind, dealerId, { search, page, limit: pageSize });
+            const next = await loadSource(kind, dealerId, { search, page, limit: pageSize, contact });
             if (requestId.current !== id) return;
             setResult(next);
         } catch (err) {
@@ -109,7 +116,7 @@ export function useClientSource(
         } finally {
             if (requestId.current === id) setIsLoading(false);
         }
-    }, [kind, dealerId, search, page, pageSize]);
+    }, [kind, dealerId, search, page, pageSize, contact]);
 
     useEffect(() => {
         void refresh();

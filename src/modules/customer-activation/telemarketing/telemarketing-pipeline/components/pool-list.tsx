@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/command";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -634,22 +636,21 @@ export function PoolList() {
               }}
               disabled={productsLoading}
             />
-            <label
-              htmlFor="pool-show-closed"
-              className="flex h-9 cursor-pointer items-center gap-2 text-sm whitespace-nowrap text-muted-foreground"
-            >
-              <Checkbox
+            <div className="flex h-9 shrink-0 items-center gap-2 rounded-md border bg-background px-2.5">
+              <Switch
                 id="pool-show-closed"
                 checked={includeClosed}
-                onCheckedChange={(value) => {
+                onCheckedChange={(checked) => {
                   rememberTotal();
-                  setIncludeClosed(value === true);
+                  setIncludeClosed(checked === true);
                   setPage(1);
                 }}
-                className="focus-visible:ring-ring"
+                aria-label="Show closed"
               />
-              Show closed
-            </label>
+              <Label htmlFor="pool-show-closed" className="cursor-pointer text-sm whitespace-nowrap">
+                Show closed
+              </Label>
+            </div>
             {isActive ? (
               <Button
                 type="button"

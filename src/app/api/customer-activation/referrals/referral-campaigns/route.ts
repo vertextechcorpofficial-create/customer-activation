@@ -19,19 +19,55 @@ function actorId(token: string): number | null {
     return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
     if (!token) {
         return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
     }
 
+    const params = new URL(request.url).searchParams;
+    const paged = params.has("page") || params.has("limit");
+    const rawPage = params.get("page");
+    const rawLimit = params.get("limit");
+    const page = rawPage === null ? 1 : Number(rawPage);
+    const limit = rawLimit === null ? 20 : Number(rawLimit);
+    if (!Number.isInteger(page) || page < 1) {
+        return NextResponse.json({ success: false, message: "Invalid page" }, { status: 400 });
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        return NextResponse.json({ success: false, message: "Invalid limit" }, { status: 400 });
+    }
+    const search = params.get("search") ?? undefined;
+    const status = params.get("status");
+    if (status !== null && status !== "active" && status !== "inactive") {
+        return NextResponse.json({ success: false, message: "Invalid status" }, { status: 400 });
+    }
+
     try {
-        const campaigns = await listCampaigns();
+        const result = await listCampaigns({
+            page,
+            limit,
+            search,
+            status: status === "active" || status === "inactive" ? status : undefined,
+            paged,
+        });
+        if (!paged) {
+            return NextResponse.json({
+                success: true,
+                data: result.items,
+                meta: { total: result.total },
+            });
+        }
         return NextResponse.json({
             success: true,
-            data: campaigns,
-            meta: { total: campaigns.length },
+            data: result.items,
+            meta: {
+                total: result.total,
+                page: result.page,
+                limit: result.limit,
+                total_pages: Math.ceil(result.total / result.limit),
+            },
         });
     } catch (error) {
         console.error("[referrals/referral-campaigns] GET failed:", error);

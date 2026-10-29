@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { AlertTriangle, Loader2, Package, Pencil, Plus, Power, PowerOff, RefreshCw } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useMemo, useState, type FormEvent } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Loader2, MoreHorizontal, Plus, Power, PowerOff } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -14,7 +14,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
     Dialog,
     DialogClose,
@@ -24,13 +23,17 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ProductsListShell } from "./products-list-shell";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import type { Product } from "../types/product.schema";
 import { useProducts } from "../hooks/use-products";
@@ -67,50 +70,19 @@ function formFrom(product: Product): FormState {
     };
 }
 
-function ProductActions({
-    product,
-    busy,
-    size = "icon-sm",
-    onEdit,
-    onToggleActive,
-}: {
-    product: Product;
-    busy: boolean;
-    size?: "icon-sm" | "icon";
-    onEdit: (product: Product) => void;
-    onToggleActive: (product: Product) => void;
-}) {
-    const active = flagOn(product.is_active);
-    return (
-        <div className="flex items-center justify-center gap-1">
-            <Button
-                variant="ghost"
-                size={size}
-                aria-label={`Edit ${product.name}`}
-                title="Edit product"
-                onClick={() => onEdit(product)}
-                className="focus-visible:ring-ring"
-            >
-                <Pencil className="size-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size={size}
-                aria-label={`${active ? "Deactivate" : "Activate"} ${product.name}`}
-                title={active ? "Deactivate product" : "Activate product"}
-                disabled={busy}
-                onClick={() => onToggleActive(product)}
-                className="focus-visible:ring-ring"
-            >
-                {active ? <PowerOff className="size-4" /> : <Power className="size-4" />}
-            </Button>
-        </div>
-    );
-}
-
 export function ProductSettings() {
     const { products, isLoading, error, refresh, createProduct, updateProduct, setProductActive } =
         useProducts();
+    // NOTE: the products GET route returns the full list (no page/limit/search
+    // params), so paging slices that list client-side. True server paging needs
+    // route + service support — reported, not redesigned here.
+    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
+    const pageCount = Math.max(1, Math.ceil(products.length / pagination.pageSize));
+    const pageRows = useMemo(() => {
+        const start = pagination.pageIndex * pagination.pageSize;
+        return products.slice(start, start + pagination.pageSize);
+    }, [products, pagination]);
+
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; product: Product } | null>(
         null,
     );
@@ -181,6 +153,83 @@ export function ProductSettings() {
 
     const togglingToActive = confirmToggle ? !flagOn(confirmToggle.is_active) : false;
 
+    const columns: ColumnDef<Product>[] = useMemo(
+        () => [
+            {
+                accessorKey: "product_code",
+                header: "Code",
+                cell: ({ row }) => (
+                    <span
+                        className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                        title={row.original.product_code}
+                    >
+                        {row.original.product_code}
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "name",
+                header: "Name",
+                cell: ({ row }) => (
+                    <span className="block max-w-64">
+                        <span className="block truncate font-medium" title={row.original.name}>
+                            {row.original.name}
+                        </span>
+                        {row.original.description ? (
+                            <span
+                                className="block truncate text-xs text-muted-foreground"
+                                title={row.original.description}
+                            >
+                                {row.original.description}
+                            </span>
+                        ) : null}
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "sort_order",
+                header: "Sort order",
+                cell: ({ row }) => (
+                    <span className="tabular-nums">{row.original.sort_order}</span>
+                ),
+            },
+            {
+                accessorKey: "is_active",
+                header: "Status",
+                cell: ({ row }) => <ProductStatus product={row.original} />,
+            },
+            {
+                id: "actions",
+                header: "Actions",
+                cell: ({ row }) => {
+                    const product = row.original;
+                    const active = flagOn(product.is_active);
+                    return (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" aria-label={`Actions for ${product.name}`}>
+                                    <MoreHorizontal className="size-4" aria-hidden />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openEdit(product)}>
+                                    Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    disabled={toggling}
+                                    onClick={() => setConfirmToggle(product)}
+                                >
+                                    {active ? "Deactivate" : "Activate"}
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    );
+                },
+            },
+        ],
+        [toggling],
+    );
+
     return (
         <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -201,144 +250,70 @@ export function ProductSettings() {
                 </Button>
             </header>
 
-            <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
-                <CardContent className="p-0">
-                    {isLoading ? (
-                        <div className="space-y-2 p-6">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                                <Skeleton key={i} className="h-10 w-full" />
-                            ))}
-                        </div>
-                    ) : error ? (
-                        <div className="p-6">
-                            <Alert variant="destructive">
-                                <AlertTriangle />
-                                <AlertTitle>Could not load products</AlertTitle>
-                                <AlertDescription>
-                                    <p>{error}</p>
-                                    <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                                        <RefreshCw className="size-4" />
-                                        Retry
-                                    </Button>
-                                </AlertDescription>
-                            </Alert>
-                        </div>
-                    ) : products.length === 0 ? (
-                        <div className="p-6">
-                            <Empty>
-                                <EmptyHeader>
-                                    <EmptyMedia variant="icon">
-                                        <Package />
-                                    </EmptyMedia>
-                                    <EmptyTitle>No products yet</EmptyTitle>
-                                    <EmptyDescription>
-                                        Create the first product to start tagging leads with what they asked about.
-                                    </EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button onClick={openCreate} className="min-h-11 md:min-h-0">
-                                        <Plus className="size-4" />
-                                        New product
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
-                        </div>
-                    ) : (
-                        <>
-                            <ul className="divide-y divide-border md:hidden">
-                                {products.map((product) => (
-                                    <li key={product.product_id} className="flex flex-col gap-3 p-4">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="font-medium break-words">{product.name}</p>
-                                                {product.description ? (
-                                                    <p
-                                                        className="truncate text-xs text-muted-foreground"
-                                                        title={product.description}
-                                                    >
-                                                        {product.description}
-                                                    </p>
-                                                ) : null}
-                                                <p className="font-mono text-xs text-muted-foreground break-words">
-                                                    {product.product_code}
-                                                </p>
-                                            </div>
-                                            <ProductStatus product={product} />
-                                        </div>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs text-muted-foreground tabular-nums">
-                                                Order {product.sort_order}
-                                            </span>
-                                            <ProductActions
-                                                product={product}
-                                                busy={toggling}
-                                                size="icon"
-                                                onEdit={openEdit}
-                                                onToggleActive={setConfirmToggle}
-                                            />
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            <div className="hidden md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                                <Table className="min-w-2xl">
-                                    <TableHeader className="bg-muted/30">
-                                        <TableRow>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead className="w-28">Sort order</TableHead>
-                                            <TableHead className="w-32">Status</TableHead>
-                                            <TableHead className="w-36 text-center">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {products.map((product) => (
-                                            <TableRow key={product.product_id}>
-                                                <TableCell
-                                                    className="max-w-40 truncate font-mono text-xs"
-                                                    title={product.product_code}
+            <ProductsListShell
+                columns={columns}
+                data={pageRows}
+                isLoading={isLoading}
+                error={error}
+                onRefresh={() => void refresh()}
+                emptyTitle="No products yet"
+                emptyDescription="Create the first product to start tagging leads with what they asked about."
+                pageCount={pageCount}
+                pagination={pagination}
+                onPaginationChange={setPagination}
+                manualPagination
+                cards={
+                    isLoading || error || products.length === 0 ? null : (
+                        <ul className="divide-y divide-border">
+                            {pageRows.map((product) => (
+                                <li key={product.product_id} className="flex flex-col gap-3 p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="font-medium break-words">{product.name}</p>
+                                            {product.description ? (
+                                                <p
+                                                    className="truncate text-xs text-muted-foreground"
+                                                    title={product.description}
                                                 >
-                                                    {product.product_code}
-                                                </TableCell>
-                                                <TableCell className="max-w-64">
-                                                    <p className="truncate" title={product.name}>
-                                                        {product.name}
-                                                    </p>
-                                                    {product.description ? (
-                                                        <p
-                                                            className="truncate text-xs text-muted-foreground"
-                                                            title={product.description}
-                                                        >
-                                                            {product.description}
-                                                        </p>
-                                                    ) : null}
-                                                </TableCell>
-                                                <TableCell className="tabular-nums">{product.sort_order}</TableCell>
-                                                <TableCell>
-                                                    <ProductStatus product={product} />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <ProductActions
-                                                        product={product}
-                                                        busy={toggling}
-                                                        onEdit={openEdit}
-                                                        onToggleActive={setConfirmToggle}
-                                                    />
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-
-                            <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-xs text-muted-foreground tabular-nums">{countLabel}</p>
-                            </div>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
+                                                    {product.description}
+                                                </p>
+                                            ) : null}
+                                            <p className="font-mono text-xs text-muted-foreground break-words">
+                                                {product.product_code}
+                                            </p>
+                                        </div>
+                                        <ProductStatus product={product} />
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-xs text-muted-foreground tabular-nums">
+                                            Order {product.sort_order}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                onClick={() => openEdit(product)}
+                                            >
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="min-h-11 flex-1 whitespace-nowrap"
+                                                disabled={toggling}
+                                                onClick={() => setConfirmToggle(product)}
+                                            >
+                                                {flagOn(product.is_active) ? "Deactivate" : "Activate"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )
+                }
+            />
 
             <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
                 <DialogContent className="w-[95vw] max-h-[85vh] flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
@@ -352,7 +327,7 @@ export function ProductSettings() {
                                 : "Add a product agents can attach to telemarketing leads."}
                         </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <form onSubmit={(event) => void handleSubmit(event)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 py-4">
                             <div className="grid gap-2">
                                 <Label htmlFor="product-code">
@@ -501,6 +476,7 @@ export function ProductSettings() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
         </div>
     );
 }

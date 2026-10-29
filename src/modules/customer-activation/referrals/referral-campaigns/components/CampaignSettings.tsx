@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { AlertTriangle, FileText, Loader2, Megaphone, Pencil, Plus, Power, PowerOff, RefreshCw } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { AlertTriangle, Loader2, Megaphone, MoreHorizontal, Plus, Power, PowerOff, RefreshCw, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     AlertDialog,
@@ -15,7 +16,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
     Dialog,
     DialogClose,
@@ -25,17 +26,31 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DataTable } from "@/components/ui/new-data-table";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import type { Campaign } from "../types/campaign.schema";
 import { durationTitle, formatCampaignDuration } from "./campaign-duration";
 import { useCampaigns } from "../hooks/use-campaigns";
+import styles from "./list-shell.module.css";
 
 const flagOn = (v: Campaign["is_active"]) => Number(v) === 1;
 const CODE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
@@ -102,67 +117,101 @@ function formFrom(campaign: Campaign): FormState {
     };
 }
 
-function CampaignActions({
+function CampaignRowMenu({
     campaign,
     busy,
-    size = "icon-sm",
     onEdit,
     onToggleActive,
 }: {
     campaign: Campaign;
     busy: boolean;
-    size?: "icon-sm" | "icon";
     onEdit: (campaign: Campaign) => void;
     onToggleActive: (campaign: Campaign) => void;
 }) {
     const active = flagOn(campaign.is_active);
     const hasPage = campaign.content_json != null;
+    const designerTitle = hasPage
+        ? "Custom page (v2)"
+        : "No page authored yet — the site shows the title and description";
     return (
-        <div className="flex items-center justify-center gap-1">
-            <Button
-                variant="ghost"
-                size={size}
-                aria-label={`Edit content for ${campaign.title}`}
-                title={
-                    hasPage
-                        ? "Custom page (v2)"
-                        : "No page authored yet — the site shows the title and description"
-                }
-                asChild
-                className={hasPage ? "focus-visible:ring-ring" : "text-muted-foreground focus-visible:ring-ring"}
-            >
-                <Link href={`/customer-activation/referrals/referral-campaigns/${campaign.campaign_id}/content`}>
-                    <FileText className="size-4" />
-                </Link>
-            </Button>
-            <Button
-                variant="ghost"
-                size={size}
-                aria-label={`Edit ${campaign.title}`}
-                title="Edit campaign"
-                onClick={() => onEdit(campaign)}
-                className="focus-visible:ring-ring"
-            >
-                <Pencil className="size-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size={size}
-                aria-label={`${active ? "Deactivate" : "Activate"} ${campaign.title}`}
-                title={active ? "Deactivate campaign" : "Activate campaign"}
-                disabled={busy}
-                onClick={() => onToggleActive(campaign)}
-                className="focus-visible:ring-ring"
-            >
-                {active ? <PowerOff className="size-4" /> : <Power className="size-4" />}
-            </Button>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={`Actions for ${campaign.title}`}>
+                    <MoreHorizontal className="size-4" aria-hidden />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                    asChild
+                    title={designerTitle}
+                    className={hasPage ? undefined : "text-muted-foreground"}
+                >
+                    <Link
+                        href={`/customer-activation/referrals/referral-campaigns/${campaign.campaign_id}/content`}
+                    >
+                        Edit content
+                    </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEdit(campaign)}>Edit details</DropdownMenuItem>
+                <DropdownMenuItem disabled={busy} onClick={() => onToggleActive(campaign)}>
+                    {active ? "Deactivate" : "Activate"}
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
+function CampaignSearchInput({
+    value,
+    onSearch,
+}: {
+    value: string;
+    onSearch: (value: string) => void;
+}) {
+    const [draft, setDraft] = useState(value);
+
+    useEffect(() => {
+        setDraft(value);
+    }, [value]);
+
+    useEffect(() => {
+        if (draft === value) return;
+        const timer = setTimeout(() => onSearch(draft), 500);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [draft]);
+
+    return (
+        <div className="relative w-full min-w-0 flex-1 sm:w-56 sm:flex-none">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+            <Input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Search campaigns..."
+                aria-label="Search campaigns"
+                className="w-full min-w-0 rounded-lg pl-8"
+            />
         </div>
     );
 }
 
 export function CampaignSettings() {
-    const { campaigns, isLoading, error, refresh, createCampaign, updateCampaign, setCampaignActive } =
-        useCampaigns();
+    const {
+        campaigns,
+        pagination,
+        onPaginationChange,
+        pageCount,
+        search,
+        setSearch,
+        status,
+        setStatus,
+        isLoading,
+        error,
+        refresh,
+        createCampaign,
+        updateCampaign,
+        setCampaignActive,
+    } = useCampaigns();
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; campaign: Campaign } | null>(
         null,
     );
@@ -171,8 +220,6 @@ export function CampaignSettings() {
     const [submitting, setSubmitting] = useState(false);
     const [toggling, setToggling] = useState(false);
     const [confirmToggle, setConfirmToggle] = useState<Campaign | null>(null);
-
-    const countLabel = error ? "—" : `${campaigns.length} ${campaigns.length === 1 ? "campaign" : "campaigns"}`;
 
     const openCreate = () => {
         setForm({ ...EMPTY_FORM });
@@ -234,36 +281,104 @@ export function CampaignSettings() {
 
     const togglingToActive = confirmToggle ? !flagOn(confirmToggle.is_active) : false;
 
+    const columns: ColumnDef<Campaign>[] = [
+        {
+            accessorKey: "campaign_code",
+            header: "Code",
+            cell: ({ row }) => (
+                <span
+                    className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                    title={row.original.campaign_code}
+                >
+                    {row.original.campaign_code}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "title",
+            header: "Title",
+            cell: ({ row }) => (
+                <span className="block max-w-56 truncate font-medium" title={row.original.title}>
+                    {row.original.title}
+                </span>
+            ),
+        },
+        {
+            id: "duration",
+            header: "Campaign Duration",
+            cell: ({ row }) => (
+                <span
+                    className="block whitespace-nowrap text-xs tabular-nums text-muted-foreground"
+                    title={windowTitle(row.original)}
+                >
+                    {windowLabel(row.original)}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "is_active",
+            header: "Status",
+            cell: ({ row }) => <CampaignStatus campaign={row.original} />,
+        },
+        {
+            id: "actions",
+            header: "Actions",
+            cell: ({ row }) => (
+                <CampaignRowMenu
+                    campaign={row.original}
+                    busy={toggling}
+                    onEdit={openEdit}
+                    onToggleActive={setConfirmToggle}
+                />
+            ),
+        },
+    ];
+
     return (
-        <div className="mx-auto w-full max-w-screen-2xl space-y-6">
+        <div className="mx-auto w-full max-w-[1600px] space-y-4">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <div className="flex items-baseline gap-2">
-                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Campaigns</h1>
-                        <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
-                            {campaigns.length} {campaigns.length === 1 ? "campaign" : "campaigns"}
-                        </p>
-                    </div>
+                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+                        Campaigns
+                    </h1>
                     <p className="text-sm text-muted-foreground">
                         Define referral campaign windows. Content is managed separately.
                     </p>
                 </div>
-                <Button onClick={openCreate} className="min-h-11 shrink-0 md:min-h-0">
-                    <Plus className="size-4" />
+                <Button onClick={openCreate} className="shrink-0">
+                    <Plus className="size-4" aria-hidden />
                     New campaign
                 </Button>
             </header>
 
-            <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
+            <Card className="gap-0 overflow-hidden rounded-2xl border border-border/50 bg-card py-0 shadow-sm">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-end gap-2 bg-muted/10 px-6 py-2">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                        <CampaignSearchInput value={search} onSearch={setSearch} />
+                        <Select value={status} onValueChange={(value) => setStatus(value as typeof status)}>
+                            <SelectTrigger className="w-[120px] shrink-0 sm:w-[130px]" aria-label="Filter by status">
+                                <SelectValue placeholder="Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void refresh()}
+                            className="shrink-0"
+                        >
+                            <RefreshCw className="size-4 shrink-0" aria-hidden />
+                            <span className="whitespace-nowrap">Refresh</span>
+                        </Button>
+                    </div>
+                </CardHeader>
                 <CardContent className="p-0">
-                    {isLoading ? (
-                        <div className="space-y-2 p-6">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                                <Skeleton key={i} className="h-10 w-full" />
-                            ))}
-                        </div>
-                    ) : error ? (
-                        <div className="p-6">
+                    {error ? (
+                        <div className="px-6 pb-6">
                             <Alert variant="destructive">
                                 <AlertTriangle />
                                 <AlertTitle>Could not load campaigns</AlertTitle>
@@ -276,109 +391,113 @@ export function CampaignSettings() {
                                 </AlertDescription>
                             </Alert>
                         </div>
-                    ) : campaigns.length === 0 ? (
-                        <div className="p-6">
-                            <Empty>
-                                <EmptyHeader>
-                                    <EmptyMedia variant="icon">
-                                        <Megaphone />
-                                    </EmptyMedia>
-                                    <EmptyTitle>No campaigns yet</EmptyTitle>
-                                    <EmptyDescription>
-                                        Create the first campaign to start running referral drives.
-                                    </EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button onClick={openCreate} className="min-h-11 md:min-h-0">
-                                        <Plus className="size-4" />
-                                        New campaign
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
-                        </div>
                     ) : (
                         <>
-                            <ul className="divide-y divide-border md:hidden">
-                                {campaigns.map((campaign) => (
-                                    <li key={campaign.campaign_id} className="flex flex-col gap-3 p-4">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="font-medium break-words">{campaign.title}</p>
-                                                <p className="font-mono text-xs text-muted-foreground break-words">
-                                                    {campaign.campaign_code}
-                                                </p>
-                                            </div>
-                                            <CampaignStatus campaign={campaign} />
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span
-                                                className="text-xs text-muted-foreground tabular-nums"
-                                                title={windowTitle(campaign)}
-                                            >
-                                                {windowLabel(campaign)}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center justify-end gap-2">
-                                            <CampaignActions
-                                                campaign={campaign}
-                                                busy={toggling}
-                                                size="icon"
-                                                onEdit={openEdit}
-                                                onToggleActive={setConfirmToggle}
-                                            />
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            <div className="hidden md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                                <Table className="min-w-2xl">
-                                    <TableHeader className="bg-muted/30">
-                                        <TableRow>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Title</TableHead>
-                                            <TableHead className="w-[240px]">Campaign Duration</TableHead>
-                                            <TableHead className="w-28">Status</TableHead>
-                                            <TableHead className="w-28 text-center">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {campaigns.map((campaign) => (
-                                            <TableRow key={campaign.campaign_id}>
-                                                <TableCell
-                                                    className="max-w-40 truncate font-mono text-xs"
-                                                    title={campaign.campaign_code}
-                                                >
-                                                    {campaign.campaign_code}
-                                                </TableCell>
-                                                <TableCell className="truncate" title={campaign.title}>
-                                                    {campaign.title}
-                                                </TableCell>
-                                                <TableCell
-                                                    className="w-[240px] text-xs whitespace-nowrap text-muted-foreground tabular-nums"
-                                                    title={windowTitle(campaign)}
-                                                >
-                                                    {windowLabel(campaign)}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <CampaignStatus campaign={campaign} />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <CampaignActions
-                                                        campaign={campaign}
-                                                        busy={toggling}
-                                                        onEdit={openEdit}
-                                                        onToggleActive={setConfirmToggle}
-                                                    />
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                            <div className="hidden px-6 pb-6 md:block">
+                                <div className={styles.hideColumnMenu}>
+                                    <DataTable
+                                        columns={columns}
+                                        data={campaigns}
+                                        isLoading={isLoading}
+                                        manualPagination
+                                        pageCount={pageCount}
+                                        pagination={pagination}
+                                        onPaginationChange={onPaginationChange}
+                                        emptyTitle="No campaigns yet"
+                                        emptyDescription="Create the first campaign to start running referral drives."
+                                    />
+                                </div>
                             </div>
-
-                            <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-xs text-muted-foreground tabular-nums">{countLabel}</p>
+                            <div className="md:hidden">
+                                {isLoading ? (
+                                    <div className="space-y-2 px-4 pb-4">
+                                        {Array.from({ length: 3 }).map((_, i) => (
+                                            <Skeleton key={i} className="h-24 w-full" />
+                                        ))}
+                                    </div>
+                                ) : campaigns.length === 0 ? (
+                                    <div className="px-4 pb-4">
+                                        <Empty>
+                                            <EmptyHeader>
+                                                <EmptyMedia variant="icon">
+                                                    <Megaphone />
+                                                </EmptyMedia>
+                                                <EmptyTitle>No campaigns yet</EmptyTitle>
+                                                <EmptyDescription>
+                                                    Create the first campaign to start running referral drives.
+                                                </EmptyDescription>
+                                            </EmptyHeader>
+                                            <EmptyContent>
+                                                <Button onClick={openCreate} className="min-h-11">
+                                                    <Plus className="size-4" />
+                                                    New campaign
+                                                </Button>
+                                            </EmptyContent>
+                                        </Empty>
+                                    </div>
+                                ) : (
+                                    <ul className="divide-y divide-border">
+                                        {campaigns.map((campaign) => {
+                                            const active = flagOn(campaign.is_active);
+                                            const hasPage = campaign.content_json != null;
+                                            return (
+                                                <li key={campaign.campaign_id} className="flex flex-col gap-3 p-4">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="font-medium break-words">{campaign.title}</p>
+                                                            <p className="font-mono text-xs text-muted-foreground break-words">
+                                                                {campaign.campaign_code}
+                                                            </p>
+                                                        </div>
+                                                        <CampaignStatus campaign={campaign} />
+                                                    </div>
+                                                    <span
+                                                        className="text-xs text-muted-foreground tabular-nums"
+                                                        title={windowTitle(campaign)}
+                                                    >
+                                                        {windowLabel(campaign)}
+                                                    </span>
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                                            title={
+                                                                hasPage
+                                                                    ? "Custom page (v2)"
+                                                                    : "No page authored yet — the site shows the title and description"
+                                                            }
+                                                            asChild
+                                                        >
+                                                            <Link
+                                                                href={`/customer-activation/referrals/referral-campaigns/${campaign.campaign_id}/content`}
+                                                            >
+                                                                Edit content
+                                                            </Link>
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                                            onClick={() => openEdit(campaign)}
+                                                        >
+                                                            Edit details
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="min-h-11 flex-1 whitespace-nowrap"
+                                                            disabled={toggling}
+                                                            onClick={() => setConfirmToggle(campaign)}
+                                                        >
+                                                            {active ? "Deactivate" : "Activate"}
+                                                        </Button>
+                                                    </div>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
                             </div>
                         </>
                     )}

@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { LeaderboardRow } from "../types/leaderboard.schema";
 import { AgentDetail } from "./agent-detail";
+import { ScoreExplainer } from "./score-explainer";
 import {
   MomentumBadge,
   RankDeltaBadge,
@@ -167,14 +168,22 @@ function PodiumCard({
       </p>
       <p className="text-xs text-muted-foreground">{row.agent_code}</p>
       {featured ? (
-        <CountUp
-          value={row.score}
-          className="text-4xl font-bold text-foreground"
-        />
+        <ScoreExplainer
+          row={row}
+          triggerClassName="text-4xl font-bold text-foreground"
+        >
+          <CountUp
+            value={row.score}
+            className="text-4xl font-bold text-foreground"
+          />
+        </ScoreExplainer>
       ) : (
-        <span className="text-xl font-semibold text-muted-foreground tabular-nums">
+        <ScoreExplainer
+          row={row}
+          triggerClassName="text-xl font-semibold text-muted-foreground tabular-nums"
+        >
           {row.score}
-        </span>
+        </ScoreExplainer>
       )}
       <BadgeRow row={row} className="justify-center" />
       <span className="mt-1 w-full">
@@ -279,7 +288,12 @@ function RankedTable({
           <TableRow>
             <TableHead className="w-16 text-right">Rank</TableHead>
             <TableHead>Agent</TableHead>
-            <TableHead className="w-44">Score</TableHead>
+            <TableHead className="w-56">
+              Score
+              <span className="block text-[11px] font-normal whitespace-nowrap text-muted-foreground">
+                Conversions × 3 + qualified × 2 + activities × 1
+              </span>
+            </TableHead>
             <TableHead>Movement</TableHead>
             <TableHead>Momentum</TableHead>
             <TableHead title="Consecutive days with recorded activity">
@@ -322,9 +336,12 @@ function RankedTable({
                   </span>
                 </td>
                 <td className="min-w-36 p-2 align-middle">
-                  <span className="block text-base font-semibold tabular-nums">
+                  <ScoreExplainer
+                    row={row}
+                    triggerClassName="block text-base font-semibold tabular-nums"
+                  >
                     {row.score}
-                  </span>
+                  </ScoreExplainer>
                   <span className="mt-1 block">
                     <ScoreBar
                       score={row.score}
@@ -449,9 +466,13 @@ function RankedCards({
                     {row.agent_code}
                   </span>
                 </span>
-                <span className="shrink-0 text-base font-semibold tabular-nums">
+                <ScoreExplainer
+                  row={row}
+                  nested
+                  triggerClassName="shrink-0 text-base font-semibold tabular-nums"
+                >
                   {row.score}
-                </span>
+                </ScoreExplainer>
                 <ChevronDown
                   className={cn(
                     "size-4 shrink-0 text-muted-foreground transition-transform",

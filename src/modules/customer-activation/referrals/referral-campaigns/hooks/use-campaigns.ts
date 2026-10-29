@@ -1,49 +1,114 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Campaign, CampaignCreate, CampaignUpdate } from "../types/campaign.schema";
 import {
     createCampaign as apiCreateCampaign,
-    getCampaigns,
+    getCampaignsPage,
     setCampaignActive as apiSetCampaignActive,
     updateCampaign as apiUpdateCampaign,
 } from "../providers/campaign-provider";
+
+export interface CampaignPagination {
+    pageIndex: number;
+    pageSize: number;
+}
+
+export type CampaignStatusFilter = "all" | "active" | "inactive";
 
 function toMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Something went wrong";
 }
 
+/**
+ * Current page rows only for a manual-mode table. `campaigns` never holds the
+ * whole collection — every pagination, search, or filter change refetches the
+ * page from `/api/customer-activation/referrals/referral-campaigns`.
+ */
 export function useCampaigns() {
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+    const [total, setTotal] = useState(0);
+    const [pagination, setPagination] = useState<CampaignPagination>({ pageIndex: 0, pageSize: 10 });
+    const [search, setSearch] = useState("");
+    const [status, setStatus] = useState<CampaignStatusFilter>("all");
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const requestId = useRef(0);
 
-    /** Background reload after a write: keeps the last good list if it fails. */
-    const sync = useCallback(async () => {
-        try {
-            setCampaigns(await getCampaigns());
+    const pageCount = Math.max(1, Math.ceil(total / pagination.pageSize));
+
+    const load = useCallback(
+        async (signal: { cancelled: boolean }) => {
+            const id = ++requestId.current;
+            setIsLoading(true);
             setError(null);
-        } catch {
-            // the write already succeeded — keep the list we have
-        }
-    }, []);
-
-    const refresh = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            setCampaigns(await getCampaigns());
-        } catch (err) {
-            setError(toMessage(err));
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+            try {
+                const page = await getCampaignsPage({
+                    page: pagination.pageIndex + 1,
+                    limit: pagination.pageSize,
+                    search,
+                    status,
+                });
+                if (signal.cancelled || requestId.current !== id) return;
+                setCampaigns(page.rows);
+                setTotal(page.total);
+            } catch (err) {
+                if (signal.cancelled || requestId.current !== id) return;
+                setCampaigns([]);
+                setTotal(0);
+                setError(toMessage(err));
+            } finally {
+                if (!signal.cancelled && requestId.current === id) setIsLoading(false);
+            }
+        },
+        [pagination, search, status],
+    );
 
     useEffect(() => {
-        void refresh();
-    }, [refresh]);
+        const signal = { cancelled: false };
+        void load(signal);
+        return () => {
+            signal.cancelled = true;
+        };
+    }, [load]);
+
+    /** Refetch the current page (Refresh action, retry, post-write sync). */
+    const refresh = useCallback(async () => {
+        await load({ cancelled: false });
+    }, [load]);
+
+    /** Background reload after a write: keeps the last good page if it fails. */
+    const sync = useCallback(async () => {
+        try {
+            const page = await getCampaignsPage({
+                page: pagination.pageIndex + 1,
+                limit: pagination.pageSize,
+                search,
+                status,
+            });
+            setCampaigns(page.rows);
+            setTotal(page.total);
+            setError(null);
+        } catch {
+            // the write already succeeded — keep the page we have
+        }
+    }, [pagination, search, status]);
+
+    /** Table-driven paging: setting state refetches the new page via `load`. */
+    const onPaginationChange = useCallback((next: CampaignPagination) => {
+        setPagination(next);
+    }, []);
+
+    const updateSearch = useCallback((value: string) => {
+        setSearch(value);
+        setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    }, []);
+
+    const updateStatus = useCallback((value: CampaignStatusFilter) => {
+        setStatus(value);
+        setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    }, []);
 
     const createCampaign = useCallback(
         async (input: CampaignCreate): Promise<boolean> => {
@@ -92,5 +157,21 @@ export function useCampaigns() {
         [sync],
     );
 
-    return { campaigns, isLoading, error, refresh, createCampaign, updateCampaign, setCampaignActive };
+    return {
+        campaigns,
+        total,
+        pagination,
+        onPaginationChange,
+        pageCount,
+        search,
+        setSearch: updateSearch,
+        status,
+        setStatus: updateStatus,
+        isLoading,
+        error,
+        refresh,
+        createCampaign,
+        updateCampaign,
+        setCampaignActive,
+    };
 }

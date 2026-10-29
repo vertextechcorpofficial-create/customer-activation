@@ -1,22 +1,19 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
     AlertTriangle,
     Check,
-    ChevronLeft,
-    ChevronRight,
     ChevronsUpDown,
     Loader2,
-    Pencil,
+    MoreHorizontal,
     Plus,
     PowerOff,
-    RefreshCw,
     Search,
     SearchX,
     UserPlus,
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -46,6 +43,12 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
     Empty,
     EmptyContent,
     EmptyDescription,
@@ -55,24 +58,25 @@ import {
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AgentsListShell } from "./agents-list-shell";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
 import type { UserOption } from "../types/agent.schema";
 import type { AgentView } from "../services/agent-service";
+import type { AgentStatusFilter } from "../providers/agent-provider";
 import { useAgents } from "../hooks/use-agents";
 import { useUserOptions } from "../hooks/use-user-options";
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 const flagOn = (v: AgentView["is_active"]) => Number(v) === 1;
 
@@ -94,7 +98,7 @@ function AgentStatus({ agent }: { agent: AgentView }) {
     );
 }
 
-function AgentActions({
+function AgentRowMenu({
     agent,
     onEdit,
     onDeactivate,
@@ -104,35 +108,27 @@ function AgentActions({
     onDeactivate: (agent: AgentView) => void;
 }) {
     return (
-        <div className="flex items-center justify-center gap-1">
-            <Button
-                variant="ghost"
-                size="icon-sm"
-                data-no-row-click
-                aria-label={`Edit ${agent.display_name}`}
-                title="Edit agent"
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onEdit(agent);
-                }}
-            >
-                <Pencil className="size-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon-sm"
-                data-no-row-click
-                aria-label={`Deactivate ${agent.display_name}`}
-                title="Deactivate agent"
-                disabled={!flagOn(agent.is_active)}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onDeactivate(agent);
-                }}
-            >
-                <PowerOff className="size-4" />
-            </Button>
-        </div>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    data-no-row-click
+                    aria-label={`Actions for ${agent.display_name}`}
+                >
+                    <MoreHorizontal className="size-4" aria-hidden />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onEdit(agent)}>Edit</DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={!flagOn(agent.is_active)}
+                    onClick={() => onDeactivate(agent)}
+                >
+                    Deactivate
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
 
@@ -296,9 +292,11 @@ function UserCombobox({
 
 export function AgentSettings() {
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
     const [search, setSearch] = useState("");
+    const [status, setStatus] = useState<AgentStatusFilter>("all");
     const { agents, total, isLoading, error, refresh, registerAgent, updateAgent, deactivateAgent } =
-        useAgents({ page, limit: PAGE_SIZE, search });
+        useAgents({ page, limit: pageSize, search, status });
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; agent: AgentView } | null>(
         null,
     );
@@ -308,15 +306,14 @@ export function AgentSettings() {
     const [deactivating, setDeactivating] = useState(false);
     const [confirmDeactivate, setConfirmDeactivate] = useState<AgentView | null>(null);
     const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
 
-    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-    const to = Math.min(page * PAGE_SIZE, total);
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
     // The header talks about the collection, not the filter, so a no-match
     // search reads "0 of 4 agents" instead of claiming the list is empty.
     const [collectionTotal, setCollectionTotal] = useState(0);
-    const isFiltered = search.trim() !== "";
+    const isFiltered = search.trim() !== "" || status !== "all";
     const countLabel = error
         ? "—"
         : isFiltered
@@ -338,6 +335,120 @@ export function AgentSettings() {
         });
         setErrors({});
         setDialog({ mode: "edit", agent });
+    };
+
+    const columns: ColumnDef<AgentView, unknown>[] = [
+        {
+            accessorKey: "agent_code",
+            header: "Code",
+            cell: ({ row }) => (
+                <span className="block max-w-40 truncate font-mono text-xs tabular-nums" title={row.original.agent_code}>
+                    {row.original.agent_code}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "display_name",
+            header: "Name",
+            cell: ({ row }) => (
+                <span className="block max-w-64 truncate font-medium" title={row.original.display_name}>
+                    {row.original.display_name}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "user_email",
+            header: "User email",
+            cell: ({ row }) => (
+                <span
+                    className="block max-w-56 truncate text-muted-foreground"
+                    title={row.original.user_email ?? undefined}
+                >
+                    {row.original.user_email ?? "—"}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "daily_call_target",
+            header: () => <span className="block text-right">Daily target</span>,
+            cell: ({ row }) => (
+                <span className="block text-right tabular-nums">
+                    {row.original.daily_call_target ?? "—"}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "is_active",
+            header: "Status",
+            cell: ({ row }) => <AgentStatus agent={row.original} />,
+        },
+        {
+            id: "actions",
+            header: "Actions",
+            cell: ({ row }) => (
+                <AgentRowMenu
+                    agent={row.original}
+                    onEdit={openEdit}
+                    onDeactivate={setConfirmDeactivate}
+                />
+            ),
+        },
+    ];
+
+    // The shared table owns its rows, so whole-row edit affordance is enhanced
+    // in place: rows are matched back to agents by their unique agent code.
+    useEffect(() => {
+        const root = listRef.current;
+        if (!root) return;
+        const matchAgent = (row: Element): AgentView | undefined => {
+            const code = row.querySelector("td")?.textContent?.trim() ?? "";
+            if (!code) return undefined;
+            return agents.find((agent) => agent.agent_code === code);
+        };
+        const enhanceRows = () => {
+            root.querySelectorAll("tbody tr").forEach((tr) => {
+                const rowEl = tr as HTMLElement;
+                // Skip the empty-state row: it spans every column.
+                if (tr.querySelector("td[colspan], td[colSpan]")) return;
+                const agent = matchAgent(tr);
+                if (!agent) return;
+                if (rowEl.getAttribute("tabindex") !== "0") rowEl.setAttribute("tabindex", "0");
+                if (rowEl.getAttribute("role") !== "button") rowEl.setAttribute("role", "button");
+                const label = `Edit ${agent.display_name}`;
+                if (rowEl.getAttribute("aria-label") !== label) rowEl.setAttribute("aria-label", label);
+                if (!rowEl.classList.contains("cursor-pointer")) {
+                    rowEl.classList.add(
+                        "cursor-pointer",
+                        "focus-visible:ring-2",
+                        "focus-visible:ring-ring/50",
+                    );
+                }
+            });
+        };
+        enhanceRows();
+        const observer = new MutationObserver(enhanceRows);
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+        return () => observer.disconnect();
+    }, [agents]);
+
+    const handleRowClick = (event: React.MouseEvent) => {
+        if (isRowClickIgnored(event.target)) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row || row.querySelector("td[colspan], td[colSpan]")) return;
+        const code = row.querySelector("td")?.textContent?.trim() ?? "";
+        const agent = agents.find((a) => a.agent_code === code);
+        if (agent) openEdit(agent);
+    };
+
+    const handleRowKeyDown = (event: React.KeyboardEvent) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (isRowClickIgnored(event.target)) return;
+        const row = (event.target as HTMLElement).closest("tbody tr");
+        if (!row || event.target !== row) return;
+        if (event.key === " ") event.preventDefault();
+        const code = row.querySelector("td")?.textContent?.trim() ?? "";
+        const agent = agents.find((a) => a.agent_code === code);
+        if (agent) openEdit(agent);
     };
 
     const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -387,6 +498,123 @@ export function AgentSettings() {
         if (ok) setConfirmDeactivate(null);
     };
 
+    const showEmpty = !isLoading && !error && agents.length === 0;
+
+    const handleStatusChange = (next: AgentStatusFilter) => {
+        // Remember the unfiltered total as the filter first hides the list,
+        // so the header can say "0 of 4 agents" instead of "0 agents".
+        if (status === "all" && next !== "all" && search.trim() === "") setCollectionTotal(total);
+        setStatus(next);
+        setPage(1);
+    };
+
+    const searchControl = (
+        <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
+            <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+            />
+            <Input
+                value={search}
+                onChange={(event) => {
+                    const value = event.target.value;
+                    // Remember the unfiltered total as the filter first hides the list,
+                    // so the header can say "0 of 4 agents" instead of "0 agents".
+                    if (search.trim() === "" && value.trim() !== "") setCollectionTotal(total);
+                    setSearch(value);
+                    setPage(1);
+                }}
+                placeholder="Search agents..."
+                aria-label="Search agents"
+                className="w-full min-w-0 pl-8"
+            />
+        </div>
+    );
+
+    const statusControl = (
+        <Select value={status} onValueChange={(value) => handleStatusChange(value as AgentStatusFilter)}>
+            <SelectTrigger className="w-[120px] shrink-0 sm:w-[130px]" aria-label="Filter by status">
+                <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+            </SelectContent>
+        </Select>
+    );
+
+    const filterControls = (
+        <>
+            {searchControl}
+            {statusControl}
+        </>
+    );
+
+    const registerAction = (
+        <Button onClick={openCreate} className="min-h-11 shrink-0 sm:min-h-0">
+            <Plus className="size-4" aria-hidden />
+            Register agent
+        </Button>
+    );
+
+    const mobileCards =
+        isLoading ? (
+            <div className="space-y-2 p-4">
+                {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                ))}
+            </div>
+        ) : agents.length === 0 ? null : (
+            <ul className="divide-y divide-border">
+                {agents.map((agent) => (
+                    <li
+                        key={agent.agent_id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Edit ${agent.display_name}`}
+                        onClick={(event) => {
+                            if (isRowClickIgnored(event.target)) return;
+                            openEdit(agent);
+                        }}
+                        onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ")
+                                return;
+                            if (isRowClickIgnored(event.target)) return;
+                            event.preventDefault();
+                            openEdit(agent);
+                        }}
+                        className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                    >
+                        <div className="min-w-0">
+                            <p className="truncate font-medium" title={agent.display_name}>
+                                {agent.display_name}
+                            </p>
+                            <p className="truncate font-mono text-xs text-muted-foreground" title={agent.agent_code}>
+                                {agent.agent_code}
+                            </p>
+                            {agent.user_email && (
+                                <p className="truncate text-xs text-muted-foreground" title={agent.user_email}>
+                                    {agent.user_email}
+                                </p>
+                            )}
+                            <p className="text-xs text-muted-foreground tabular-nums">
+                                Target {agent.daily_call_target ?? "—"}
+                            </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                            <AgentStatus agent={agent} />
+                            <AgentRowMenu
+                                agent={agent}
+                                onEdit={openEdit}
+                                onDeactivate={setConfirmDeactivate}
+                            />
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        );
+
     return (
         <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -398,60 +626,15 @@ export function AgentSettings() {
                         </p>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        Register existing users as telemarketing agents. Users themselves are never created here.
+                        Telesales agents who can be assigned leads.
                     </p>
                 </div>
-                <Button onClick={openCreate} className="min-h-11 shrink-0 md:min-h-0">
-                    <Plus className="size-4" />
-                    Register agent
-                </Button>
+                {registerAction}
             </header>
-
-            <div className="relative w-full sm:max-w-xs">
-                <Search
-                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                />
-                <Input
-                    value={search}
-                    onChange={(event) => {
-                        const value = event.target.value;
-                        // Remember the unfiltered total as the filter first hides the list,
-                        // so the header can say "0 of 4 agents" instead of "0 agents".
-                        if (search.trim() === "" && value.trim() !== "") setCollectionTotal(total);
-                        setSearch(value);
-                        setPage(1);
-                    }}
-                    placeholder="Search agents..."
-                    aria-label="Search agents"
-                    className="pl-8"
-                />
-            </div>
-
-            <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
-                <CardContent className="p-0">
-                    {isLoading ? (
-                        <div className="space-y-2 p-6">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                                <Skeleton key={i} className="h-10 w-full" />
-                            ))}
-                        </div>
-                    ) : error ? (
-                        <div className="p-6">
-                            <Alert variant="destructive">
-                                <AlertTriangle />
-                                <AlertTitle>Could not load agents</AlertTitle>
-                                <AlertDescription>
-                                    <p>{error}</p>
-                                    <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                                        <RefreshCw className="size-4" />
-                                        Retry
-                                    </Button>
-                                </AlertDescription>
-                            </Alert>
-                        </div>
-                    ) : agents.length === 0 ? (
-                        <div className="p-6">
+            <div ref={listRef} onClick={handleRowClick} onKeyDown={handleRowKeyDown}>
+                {showEmpty ? (
+                    <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
+                        <CardContent className="p-6">
                             {search.trim() !== "" ? (
                                 <Empty>
                                     <EmptyHeader>
@@ -475,6 +658,31 @@ export function AgentSettings() {
                                         </Button>
                                     </EmptyContent>
                                 </Empty>
+                            ) : status !== "all" ? (
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyMedia variant="icon">
+                                            <SearchX />
+                                        </EmptyMedia>
+                                        <EmptyTitle>
+                                            No {status === "active" ? "active" : "inactive"} agents
+                                        </EmptyTitle>
+                                        <EmptyDescription>
+                                            Nothing in this status. Clear the filter to see every agent.
+                                        </EmptyDescription>
+                                    </EmptyHeader>
+                                    <EmptyContent>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setStatus("all");
+                                                setPage(1);
+                                            }}
+                                        >
+                                            Clear filter
+                                        </Button>
+                                    </EmptyContent>
+                                </Empty>
                             ) : (
                                 <Empty>
                                     <EmptyHeader>
@@ -494,165 +702,32 @@ export function AgentSettings() {
                                     </EmptyContent>
                                 </Empty>
                             )}
-                        </div>
-                    ) : (
-                        <>
-                            <ul className="divide-y divide-border md:hidden">
-                                {agents.map((agent) => (
-                                    <li
-                                        key={agent.agent_id}
-                                        tabIndex={0}
-                                        role="button"
-                                        aria-label={`Edit ${agent.display_name}`}
-                                        onClick={(event) => {
-                                            if (isRowClickIgnored(event.target)) return;
-                                            openEdit(agent);
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (event.key !== "Enter" && event.key !== " ")
-                                                return;
-                                            if (isRowClickIgnored(event.target)) return;
-                                            event.preventDefault();
-                                            openEdit(agent);
-                                        }}
-                                        className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-                                    >
-                                        <div className="min-w-0">
-                                            <p className="truncate font-medium" title={agent.display_name}>
-                                                {agent.display_name}
-                                            </p>
-                                            <p className="truncate font-mono text-xs text-muted-foreground" title={agent.agent_code}>
-                                                {agent.agent_code}
-                                            </p>
-                                            {agent.user_email && (
-                                                <p className="truncate text-xs text-muted-foreground" title={agent.user_email}>
-                                                    {agent.user_email}
-                                                </p>
-                                            )}
-                                            <p className="text-xs text-muted-foreground tabular-nums">
-                                                Target {agent.daily_call_target ?? "—"}
-                                            </p>
-                                        </div>
-                                        <div className="flex shrink-0 items-center gap-1">
-                                            <AgentStatus agent={agent} />
-                                            <AgentActions
-                                                agent={agent}
-                                                onEdit={openEdit}
-                                                onDeactivate={setConfirmDeactivate}
-                                            />
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            <div className="hidden overflow-x-auto md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                                <Table className="min-w-3xl">
-                                    <TableHeader className="bg-muted/30">
-                                        <TableRow>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead className="w-56">User email</TableHead>
-                                            <TableHead className="w-28 text-right">Daily target</TableHead>
-                                            <TableHead className="w-28">Status</TableHead>
-                                            <TableHead className="w-32 text-center">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {agents.map((agent) => (
-                                            <TableRow
-                                                key={agent.agent_id}
-                                                tabIndex={0}
-                                                role="button"
-                                                aria-label={`Edit ${agent.display_name}`}
-                                                onClick={(event) => {
-                                                    if (isRowClickIgnored(event.target)) return;
-                                                    openEdit(agent);
-                                                }}
-                                                onKeyDown={(event) => {
-                                                    if (
-                                                        event.key !== "Enter" &&
-                                                        event.key !== " "
-                                                    )
-                                                        return;
-                                                    if (isRowClickIgnored(event.target)) return;
-                                                    event.preventDefault();
-                                                    openEdit(agent);
-                                                }}
-                                                className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-                                            >
-                                                <TableCell
-                                                    className="max-w-40 truncate font-mono text-xs"
-                                                    title={agent.agent_code}
-                                                >
-                                                    {agent.agent_code}
-                                                </TableCell>
-                                                <TableCell
-                                                    className="max-w-64 truncate"
-                                                    title={agent.display_name}
-                                                >
-                                                    {agent.display_name}
-                                                </TableCell>
-                                                <TableCell
-                                                    className="max-w-56 truncate text-muted-foreground"
-                                                    title={agent.user_email ?? undefined}
-                                                >
-                                                    {agent.user_email ?? "—"}
-                                                </TableCell>
-                                                <TableCell className="text-right tabular-nums">
-                                                    {agent.daily_call_target ?? "—"}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <AgentStatus agent={agent} />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <AgentActions
-                                                        agent={agent}
-                                                        onEdit={openEdit}
-                                                        onDeactivate={setConfirmDeactivate}
-                                                    />
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-
-                            {pageCount > 1 && (
-                                <div className="flex flex-col gap-2 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <p className="text-xs text-muted-foreground tabular-nums">
-                                        {from}–{to} of {total}
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="min-h-11 md:min-h-0"
-                                            aria-label="Previous page"
-                                            disabled={page <= 1 || isLoading}
-                                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                        >
-                                            <ChevronLeft className="size-4" />
-                                        </Button>
-                                        <span className="text-xs text-muted-foreground">
-                                            Page {page} of {pageCount}
-                                        </span>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="min-h-11 md:min-h-0"
-                                            aria-label="Next page"
-                                            disabled={page >= pageCount || isLoading}
-                                            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                                        >
-                                            <ChevronRight className="size-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-                </CardContent>
-            </Card>
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <AgentsListShell
+                        columns={columns}
+                        data={agents}
+                        isLoading={isLoading}
+                        error={error}
+                        onRefresh={() => void refresh()}
+                        filters={filterControls}
+                        cards={mobileCards}
+                        emptyTitle="No agents yet"
+                        emptyDescription="Register an existing user to start assigning telemarketing work."
+                        pageCount={pageCount}
+                        pagination={{ pageIndex: page - 1, pageSize }}
+                        onPaginationChange={({ pageIndex, pageSize: nextSize }) => {
+                            if (nextSize !== pageSize) {
+                                setPageSize(nextSize);
+                                setPage(1);
+                            } else {
+                                setPage(pageIndex + 1);
+                            }
+                        }}
+                    />
+                )}
+            </div>
 
             <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
                 <DialogContent

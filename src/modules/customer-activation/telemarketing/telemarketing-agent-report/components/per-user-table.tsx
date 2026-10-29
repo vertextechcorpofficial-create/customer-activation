@@ -363,20 +363,20 @@ export function PerUserTable({
                             </div>
                             <Button
                                 type="button"
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
                                 onClick={toggleAll}
-                                className="h-9 border border-muted-foreground sm:ml-auto"
+                                className="h-9 sm:ml-auto"
                             >
                                 {allExpanded ? "Collapse all" : "Expand all"}
                             </Button>
                             {isActive ? (
                                 <Button
                                     type="button"
-                                    variant="ghost"
+                                    variant="outline"
                                     size="sm"
                                     onClick={resetControls}
-                                    className="h-9 border border-muted-foreground"
+                                    className="h-9"
                                 >
                                     Reset
                                 </Button>

@@ -19,6 +19,7 @@ export interface SourceQueryParams {
     search?: string;
     page?: number;
     limit?: number;
+    contact?: "with" | "missing";
 }
 
 async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -31,6 +32,7 @@ async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
 function withPaging(path: string, params: SourceQueryParams): string {
     const query = new URLSearchParams();
     if (params.search?.trim()) query.set("search", params.search.trim());
+    if (params.contact) query.set("contact", params.contact);
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const text = query.toString();

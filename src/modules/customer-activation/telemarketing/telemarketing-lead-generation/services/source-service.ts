@@ -24,6 +24,8 @@ export interface ClientSourceQuery {
     search?: string;
     page?: number;
     limit?: number;
+    /** Narrow by contact completeness. Absent means no narrowing. */
+    contact?: "with" | "missing";
 }
 
 /** Upper bound so a crafted limit cannot OOM the route. */
@@ -122,6 +124,35 @@ async function queryClientTable(
     const offset = (page - 1) * size;
     const q = query.search?.trim();
     const clauses: Record<string, unknown>[] = [{ isActive: { _eq: 1 } }];
+    // Contact completeness as a hard Directus filter so it narrows the whole
+    // result set (and its filter_count), never just the visible page.
+    // Coarse by design: display cleaning also drops placeholder numbers and invalid
+    // emails, which no column filter can express. Clients store "0" for an
+    // empty contact_number, so "0" counts as missing on both branches.
+    if (query.contact === "with") {
+        clauses.push({
+            _or: [
+                { contact_number: { _nempty: true, _neq: "0" } },
+                { customer_email: { _nempty: true } },
+            ],
+        });
+    } else if (query.contact === "missing") {
+        // Flat groups: some client Directus builds reject a nested `_and`
+        // inside the top-level `_and`. Empty strings match via `_empty` —
+        // `_eq: ""` answers HTTP 400 on those builds (verified live).
+        clauses.push(
+            {
+                _or: [
+                    { contact_number: { _null: true } },
+                    { contact_number: { _empty: true } },
+                    { contact_number: { _eq: "0" } },
+                ],
+            },
+            {
+                _or: [{ customer_email: { _null: true } }, { customer_email: { _empty: true } }],
+            },
+        );
+    }
     if (q) {
         clauses.push({
             _or: [

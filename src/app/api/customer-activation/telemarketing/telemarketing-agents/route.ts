@@ -29,12 +29,20 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const page = Number(params.get("page") ?? 1);
     const limit = Number(params.get("limit") ?? 20);
+    const statusParam = params.get("status") ?? "all";
+    if (statusParam !== "all" && statusParam !== "active" && statusParam !== "inactive") {
+        return NextResponse.json(
+            { success: false, message: "Invalid status. Expected one of: all, active, inactive" },
+            { status: 400 },
+        );
+    }
 
     try {
         const result = await listAgents({
             page: Number.isFinite(page) ? page : 1,
             limit: Number.isFinite(limit) ? limit : 20,
             search: params.get("search") ?? undefined,
+            status: statusParam,
         });
         return NextResponse.json({
             success: true,

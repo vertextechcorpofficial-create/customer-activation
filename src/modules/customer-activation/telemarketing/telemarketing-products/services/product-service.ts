@@ -81,6 +81,53 @@ function productPatch(input: ProductUpdate, actorId: number | null): Record<stri
     return patch;
 }
 
+export interface ProductPage {
+    items: Product[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export type ProductStatusFilter = "active" | "inactive";
+
+function productListFilter(search: string, status?: ProductStatusFilter): string {
+    const and: Array<Record<string, unknown>> = [];
+    if (search) {
+        and.push({
+            _or: [{ product_code: { _icontains: search } }, { name: { _icontains: search } }],
+        });
+    }
+    if (status) {
+        and.push({ is_active: { _eq: status === "active" ? 1 : 0 } });
+    }
+    if (and.length === 0) return "";
+    return `&filter=${encodeURIComponent(JSON.stringify(and.length === 1 ? and[0] : { _and: and }))}`;
+}
+
+/**
+ * One page of products, active first by `sort_order`, then name.
+ * `filter_count` (not `total_count`) is the filtered total — `total_count` is the
+ * whole collection and would make every page count wrong.
+ */
+export async function listProductPage(
+    opts: { page?: number; limit?: number; search?: string; status?: ProductStatusFilter } = {},
+): Promise<ProductPage> {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
+    const search = opts.search?.trim() ?? "";
+
+    const body = await request<Product[]>(
+        `/items/${COLLECTION}?fields=*&sort=-is_active,sort_order,name&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count${productListFilter(search, opts.status)}`,
+    );
+
+    return {
+        items: body.data ?? [],
+        total: body.meta?.filter_count ?? body.data?.length ?? 0,
+        page,
+        limit,
+    };
+}
+
 /**
  * Every product, active first by `sort_order`, then name. Inactive ones stay
  * listed so they can be reactivated.
