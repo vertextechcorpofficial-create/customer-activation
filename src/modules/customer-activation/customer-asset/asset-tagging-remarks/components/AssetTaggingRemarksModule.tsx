@@ -322,8 +322,6 @@ export function AssetTaggingRemarksModule() {
 
             <div ref={tableWrapRef}>
             <AssetTaggingRemarksListShell
-                title="Assignments"
-                description="Open assignments hold units out of stock until they are returned."
                 columns={columns}
                 data={filtered}
                 isLoading={isLoading}

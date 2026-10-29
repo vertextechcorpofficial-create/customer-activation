@@ -172,8 +172,6 @@ export function AssetCustomersModule() {
             </header>
 
             <AssetCustomersListShell
-                title="Customers"
-                description="Every customer with live asset holdings. Read-only — customer records belong to another module."
                 columns={columns}
                 data={customers}
                 isLoading={isLoading}
@@ -205,7 +203,7 @@ export function AssetCustomersModule() {
                                 <SelectItem value="inactive">Inactive</SelectItem>
                             </SelectContent>
                         </Select>
-                        <div className="flex shrink-0 items-center gap-1.5">
+                        <div className="flex h-8 shrink-0 items-center gap-2 rounded-md border bg-background px-2.5">
                             <Switch
                                 id="with-assets-only"
                                 checked={onlyWithAssets}
