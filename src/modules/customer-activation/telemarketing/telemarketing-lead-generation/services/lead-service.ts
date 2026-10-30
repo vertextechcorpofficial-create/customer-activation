@@ -284,7 +284,7 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
         throw new Error("INTERNAL_FAIL: No active stage available");
     }
     const now = phNow();
-    const { tag_ids, stage_id: _omitted, dealer_id: requestedDealer, product_id, ...fields } = input;
+    const { tag_ids, stage_id: _omitted, dealer_id: requestedDealer, product_id, referrer_id, ...fields } = input;
     void _omitted;
     const wantsProvenance = requestedDealer !== undefined && requestedDealer !== null;
     const storeDealer = wantsProvenance && (await telemarketingLeadHasDealerId());
@@ -299,6 +299,10 @@ export async function createLead(input: LeadCreate, userId: number | null): Prom
             body: JSON.stringify({
                 ...fields,
                 ...(storeDealer ? { dealer_id: requestedDealer } : {}),
+                // Durable link to the referral account this lead was converted
+                // from (FK to `referrals_account.referrer_id`). Other sources
+                // send nothing, leaving it null.
+                ...(referrer_id ? { referrer_id } : {}),
                 // One product per lead; null for historical/unassigned rows.
                 // No column-detection fallback: `product_id` must be a
                 // registered Directus field or this write is rejected.

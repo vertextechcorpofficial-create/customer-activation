@@ -84,7 +84,7 @@ function useProducts() {
 }
 
 /** Required single-select over the product catalog — Popover + Command, one product per lead. */
-function ProductCombobox({
+export function ProductCombobox({
     controlId,
     value,
     onChange,
@@ -203,11 +203,15 @@ export interface LeadPrefill {
     industry?: string | null;
     product_interest?: string | null;
     need?: string | null;
+    /** Referral accounts only: the registrant's job title — display only, never written to the lead. */
+    position?: string | null;
     source: SourceOption;
     party_kind?: "customer" | "company" | "dealer" | "none";
     party_id?: number | null;
     /** Client the row was browsed from — recorded as lead provenance when the column exists. */
     dealer_id?: number | null;
+    /** Referral accounts only: `referrer_id` of the account — persisted on the lead. Other sources send nothing. */
+    referrer_id?: number | null;
 }
 
 let provenanceWarned = false;
@@ -285,6 +289,7 @@ export function CreateLeadDialog({
             party_kind: prefill?.party_kind ?? "none",
             party_id: prefill?.party_id ?? null,
             dealer_id: prefill?.dealer_id ?? undefined,
+            referrer_id: prefill?.referrer_id ?? undefined,
             company_name: companyName.trim(),
             contact_name: contactName.trim() || null,
             mobile: mobile.trim() || null,
@@ -369,6 +374,25 @@ export function CreateLeadDialog({
                                 maxLength={191}
                             />
                         </div>
+                        {prefill?.position ? (
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="lg-position">Position</Label>
+                                <Input id="lg-position" value={prefill.position} disabled readOnly />
+                            </div>
+                        ) : (
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="lg-industry">Industry</Label>
+                                <Input
+                                    id="lg-industry"
+                                    value={industry}
+                                    onChange={(e) => setIndustry(e.target.value)}
+                                    placeholder="Retail"
+                                    maxLength={128}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    {prefill?.position ? (
                         <div className="grid gap-1.5">
                             <Label htmlFor="lg-industry">Industry</Label>
                             <Input
@@ -379,7 +403,7 @@ export function CreateLeadDialog({
                                 maxLength={128}
                             />
                         </div>
-                    </div>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="grid gap-1.5">
                             <Label htmlFor="lg-mobile">Mobile</Label>

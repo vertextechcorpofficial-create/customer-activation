@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SOURCE_PAGE_SIZE, type ClientOption, type SourceResult } from "../types/lead.schema";
-import { fetchClients, fetchCustomerSource, fetchProspectingSource } from "../providers/source-provider";
+import {
+    fetchClients,
+    fetchCustomerSource,
+    fetchProspectingSource,
+    fetchReferralAccounts,
+} from "../providers/source-provider";
 
 function toMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Something went wrong";
@@ -117,6 +122,64 @@ export function useClientSource(
             if (requestId.current === id) setIsLoading(false);
         }
     }, [kind, dealerId, search, page, pageSize, contact]);
+
+    useEffect(() => {
+        void refresh();
+    }, [refresh]);
+
+    return { result, isLoading, error, refresh };
+}
+
+/** In-flight referral requests by query signature — same join-instead-of-abort shape. */
+const referralInflight = new Map<string, Promise<SourceResult>>();
+
+/**
+ * One server-paged window of website registrants. Unlike the client-scoped
+ * tabs this is global (no dealerId), narrowed by `account_status` instead of
+ * contact completeness. Rows stay during a refetch; branch on
+ * `result.status` (`ok` | `empty` | `unavailable`).
+ */
+export function useReferralAccounts(
+    search = "",
+    status = "all",
+    page = 1,
+    pageSize = SOURCE_PAGE_SIZE,
+) {
+    const [result, setResult] = useState<SourceResult | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const requestId = useRef(0);
+
+    const refresh = useCallback(async (): Promise<void> => {
+        const id = (requestId.current += 1);
+        setIsLoading(true);
+        setError(null);
+        try {
+            const key = `referrals|${search}|${status}|${page}|${pageSize}`;
+            const existing = referralInflight.get(key);
+            const request =
+                existing ??
+                fetchReferralAccounts({
+                    search,
+                    page,
+                    limit: pageSize,
+                    ...(status === "all" ? {} : { status }),
+                }).finally(() => {
+                    if (referralInflight.get(key) === request) referralInflight.delete(key);
+                });
+            if (!existing) referralInflight.set(key, request);
+            const next = await request;
+            if (requestId.current !== id) return;
+            setResult(next);
+        } catch (err) {
+            if (requestId.current !== id) return;
+            const message = toMessage(err);
+            setError(message);
+            toast.error("Failed to load referral accounts", { description: message });
+        } finally {
+            if (requestId.current === id) setIsLoading(false);
+        }
+    }, [search, status, page, pageSize]);
 
     useEffect(() => {
         void refresh();
