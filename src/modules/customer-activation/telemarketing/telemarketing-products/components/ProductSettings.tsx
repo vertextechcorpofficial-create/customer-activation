@@ -32,11 +32,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ProductsListShell } from "./products-list-shell";
+import { WebsiteCombobox, WebsiteFilterCombobox } from "./website-combobox";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { Product } from "../types/product.schema";
 import { useProducts } from "../hooks/use-products";
+import { useWebsites } from "../hooks/use-websites";
 
 const flagOn = (v: Product["is_active"]) => Number(v) === 1;
 
@@ -51,19 +53,21 @@ function ProductStatus({ product }: { product: Product }) {
 interface FormState {
     product_code: string;
     name: string;
+    website_id: string;
     description: string;
     sort_order: string;
     is_active: boolean;
 }
 
-type FormErrors = Partial<Record<"product_code" | "name" | "description" | "sort_order", string>>;
+type FormErrors = Partial<Record<"product_code" | "name" | "website_id" | "description" | "sort_order", string>>;
 
-const EMPTY_FORM: FormState = { product_code: "", name: "", description: "", sort_order: "0", is_active: true };
+const EMPTY_FORM: FormState = { product_code: "", name: "", website_id: "", description: "", sort_order: "0", is_active: true };
 
 function formFrom(product: Product): FormState {
     return {
         product_code: product.product_code,
         name: product.name,
+        website_id: product.website_id != null ? String(product.website_id) : "",
         description: product.description ?? "",
         sort_order: String(product.sort_order),
         is_active: flagOn(product.is_active),
@@ -71,8 +75,14 @@ function formFrom(product: Product): FormState {
 }
 
 export function ProductSettings() {
-    const { products, isLoading, error, refresh, createProduct, updateProduct, setProductActive } =
+    const { products, isLoading, error, refresh, websiteId, setWebsiteId, createProduct, updateProduct, setProductActive } =
         useProducts();
+    const {
+        websites,
+        isLoading: websitesLoading,
+        error: websitesError,
+        refresh: retryWebsites,
+    } = useWebsites();
     // NOTE: the products GET route returns the full list (no page/limit/search
     // params), so paging slices that list client-side. True server paging needs
     // route + service support — reported, not redesigned here.
@@ -115,6 +125,7 @@ export function ProductSettings() {
         const next: FormErrors = {};
         if (!form.product_code.trim()) next.product_code = "Enter a product code.";
         if (!form.name.trim()) next.name = "Enter a product name.";
+        if (!form.website_id.trim()) next.website_id = "Select a website.";
         if (form.description.trim().length > 500)
             next.description = "Description must be 500 characters or fewer.";
         if (!/^\d+$/.test(form.sort_order.trim())) next.sort_order = "Sort order must be a whole number.";
@@ -130,6 +141,7 @@ export function ProductSettings() {
         const payload = {
             product_code: form.product_code.trim(),
             name: form.name.trim(),
+            website_id: Number(form.website_id),
             description: trimmedDescription === "" ? null : trimmedDescription,
             sort_order: Number(form.sort_order.trim()),
             is_active: form.is_active,
@@ -175,6 +187,13 @@ export function ProductSettings() {
                         <span className="block truncate font-medium" title={row.original.name}>
                             {row.original.name}
                         </span>
+                        {row.original.website_name ? (
+                            <StatusPill tone="info" className="mt-1 w-fit max-w-full">
+                                <span className="block truncate" title={row.original.website_name}>
+                                    {row.original.website_name}
+                                </span>
+                            </StatusPill>
+                        ) : null}
                         {row.original.description ? (
                             <span
                                 className="block truncate text-xs text-muted-foreground"
@@ -262,6 +281,19 @@ export function ProductSettings() {
                 pagination={pagination}
                 onPaginationChange={setPagination}
                 manualPagination
+                filters={
+                    <WebsiteFilterCombobox
+                        value={websiteId}
+                        onChange={(next) => {
+                            setWebsiteId(next);
+                            setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+                        }}
+                        websites={websites}
+                        isLoading={websitesLoading}
+                        error={websitesError}
+                        onRetry={() => void retryWebsites()}
+                    />
+                }
                 cards={
                     isLoading || error || products.length === 0 ? null : (
                         <ul className="divide-y divide-border">
@@ -270,6 +302,11 @@ export function ProductSettings() {
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0">
                                             <p className="font-medium break-words">{product.name}</p>
+                                            {product.website_name ? (
+                                                <StatusPill tone="info" className="mt-1 w-fit max-w-full">
+                                                    <span className="block truncate">{product.website_name}</span>
+                                                </StatusPill>
+                                            ) : null}
                                             {product.description ? (
                                                 <p
                                                     className="truncate text-xs text-muted-foreground"
@@ -366,6 +403,40 @@ export function ProductSettings() {
                                 {errors.name && (
                                     <p id="product-name-error" className="text-xs text-destructive">
                                         {errors.name}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="product-website">
+                                    Website <span className="text-destructive">*</span>
+                                </Label>
+                                {websitesError ? (
+                                    <p id="product-website-load-error" role="alert" className="text-xs text-destructive">
+                                        Could not load websites.{" "}
+                                        <button
+                                            type="button"
+                                            className="underline underline-offset-2"
+                                            onClick={() => void retryWebsites()}
+                                        >
+                                            Retry
+                                        </button>
+                                    </p>
+                                ) : (
+                                    <WebsiteCombobox
+                                        controlId="product-website"
+                                        value={form.website_id}
+                                        onChange={(websiteId) => setField("website_id", websiteId)}
+                                        websites={websites}
+                                        websitesLoading={websitesLoading}
+                                        invalid={Boolean(errors.website_id)}
+                                        describedBy={
+                                            errors.website_id ? "product-website-error" : undefined
+                                        }
+                                    />
+                                )}
+                                {errors.website_id && (
+                                    <p id="product-website-error" className="text-xs text-destructive">
+                                        {errors.website_id}
                                     </p>
                                 )}
                             </div>

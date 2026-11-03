@@ -41,6 +41,7 @@ export interface CampaignPageQuery {
     limit: number;
     search?: string;
     status?: "all" | "active" | "inactive";
+    websiteId?: number | null;
 }
 
 export interface CampaignPage {
@@ -62,6 +63,7 @@ export async function getCampaignsPage(query: CampaignPageQuery): Promise<Campai
     const search = query.search?.trim();
     if (search) params.set("search", search);
     if (query.status && query.status !== "all") params.set("status", query.status);
+    if (query.websiteId != null) params.set("websiteId", String(query.websiteId));
     const res = await fetch(`${BASE}?${params.toString()}`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
@@ -82,6 +84,7 @@ export async function getCampaignsPage(query: CampaignPageQuery): Promise<Campai
     const filtered = all.filter((campaign) => {
         if (query.status === "active" && Number(campaign.is_active) !== 1) return false;
         if (query.status === "inactive" && Number(campaign.is_active) === 1) return false;
+        if (query.websiteId != null && campaign.website_id !== query.websiteId) return false;
         if (!q) return true;
         return (
             campaign.title.toLowerCase().includes(q) ||

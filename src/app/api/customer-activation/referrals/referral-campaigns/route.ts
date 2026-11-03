@@ -43,6 +43,14 @@ export async function GET(request: Request) {
     if (status !== null && status !== "active" && status !== "inactive") {
         return NextResponse.json({ success: false, message: "Invalid status" }, { status: 400 });
     }
+    const rawWebsiteId = params.get("websiteId") ?? undefined;
+    let websiteId: number | undefined;
+    if (rawWebsiteId !== undefined) {
+        websiteId = Number(rawWebsiteId);
+        if (!Number.isInteger(websiteId) || (websiteId as number) < 1) {
+            return NextResponse.json({ success: false, message: "Invalid websiteId" }, { status: 400 });
+        }
+    }
 
     try {
         const result = await listCampaigns({
@@ -51,6 +59,7 @@ export async function GET(request: Request) {
             search,
             status: status === "active" || status === "inactive" ? status : undefined,
             paged,
+            websiteId,
         });
         if (!paged) {
             return NextResponse.json({
@@ -108,6 +117,12 @@ export async function POST(request: Request) {
         const status = error instanceof CampaignServiceError ? error.status : 500;
         const message =
             error instanceof CampaignServiceError ? error.message : "Could not create the campaign";
+        if (error instanceof CampaignServiceError && error.field) {
+            return NextResponse.json(
+                { success: false, message, errors: [{ field: error.field, message }] },
+                { status },
+            );
+        }
         return NextResponse.json({ success: false, message }, { status });
     }
 }

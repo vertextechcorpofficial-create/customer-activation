@@ -67,6 +67,21 @@ interface TelemarketingProduct {
   name: string;
   is_active: number | boolean;
   sort_order: number | null;
+  website_id?: number | null;
+  website_code?: string | null;
+  website_name?: string | null;
+}
+
+/** Distinct site key — products without any site field all share one bucket. */
+function siteKey(p: TelemarketingProduct): string | number {
+  return (p.website_id ?? p.website_code ?? p.website_name ?? "__single__") as string | number;
+}
+
+/** `name — website` only when the catalogue spans sites; plain name otherwise. */
+function productLabel(p: TelemarketingProduct, multiSite: boolean): string {
+  if (!multiSite) return p.name;
+  const site = (p.website_name ?? "").trim();
+  return site ? `${p.name} — ${site}` : p.name;
 }
 
 /**
@@ -263,14 +278,20 @@ function ProductCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
+  const multiSite = new Set(options.map(siteKey)).size > 1;
   const filtered = q
-    ? options.filter(
-        (product) =>
-          product.name.toLowerCase().includes(q) || product.product_code.toLowerCase().includes(q),
-      )
+    ? options.filter((product) => {
+        const label = productLabel(product, multiSite).toLowerCase();
+        return (
+          label.includes(q) ||
+          product.name.toLowerCase().includes(q) ||
+          product.product_code.toLowerCase().includes(q) ||
+          (product.website_name ?? "").toLowerCase().includes(q)
+        );
+      })
     : options;
   const selected = options.find((product) => String(product.product_id) === value) ?? null;
-  const label = selected ? selected.name : "All products";
+  const label = selected ? productLabel(selected, multiSite) : "All products";
   const showAll = q === "" || "all products".includes(q);
 
   return (
@@ -322,12 +343,13 @@ function ProductCombobox({
               {filtered.map((product) => {
                 const productValue = String(product.product_id);
                 const isSelected = productValue === value;
+                const optionLabel = productLabel(product, multiSite);
                 return (
                   <CommandItem
                     key={product.product_id}
-                    value={`${product.name} ${productValue}`}
-                    keywords={[product.name]}
-                    title={product.name}
+                    value={`${optionLabel} ${productValue}`}
+                    keywords={[optionLabel, product.name, product.product_code]}
+                    title={optionLabel}
                     onSelect={() => {
                       onChange(productValue);
                       setOpen(false);
@@ -338,7 +360,7 @@ function ProductCombobox({
                       className={cn("size-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")}
                       aria-hidden
                     />
-                    <span className="min-w-0 flex-1 truncate">{product.name}</span>
+                    <span className="min-w-0 flex-1 truncate">{optionLabel}</span>
                   </CommandItem>
                 );
               })}

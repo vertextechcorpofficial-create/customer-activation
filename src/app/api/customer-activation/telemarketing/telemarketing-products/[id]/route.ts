@@ -65,6 +65,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         const status = error instanceof ProductServiceError ? error.status : 500;
         const message =
             error instanceof ProductServiceError ? error.message : "Could not update the product";
+        if (error instanceof ProductServiceError && error.field) {
+            return NextResponse.json(
+                { success: false, message, errors: [{ field: error.field, message }] },
+                { status },
+            );
+        }
         return NextResponse.json({ success: false, message }, { status });
     }
 }

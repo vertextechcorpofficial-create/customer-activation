@@ -32,12 +32,21 @@ export async function GET(req: NextRequest) {
     if (rawStatus !== undefined && !STATUSES.has(rawStatus)) {
         return NextResponse.json({ success: false, message: "Invalid status" }, { status: 400 });
     }
+    const rawWebsiteId = params.get("websiteId") ?? undefined;
+    let websiteId: number | undefined;
+    if (rawWebsiteId !== undefined) {
+        websiteId = Number(rawWebsiteId);
+        if (!Number.isInteger(websiteId) || (websiteId as number) < 1) {
+            return NextResponse.json({ success: false, message: "Invalid websiteId" }, { status: 400 });
+        }
+    }
     try {
         const result = await listReferralAccounts({
             page,
             limit,
             search: params.get("search") ?? undefined,
             status: rawStatus as ReferralAccountStatus | undefined,
+            websiteId,
         });
         return NextResponse.json({
             success: true,

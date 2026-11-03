@@ -8,6 +8,8 @@ import {
     fetchCustomerSource,
     fetchProspectingSource,
     fetchReferralAccounts,
+    fetchWebsites,
+    type WebsiteOption,
 } from "../providers/source-provider";
 
 function toMessage(error: unknown): string {
@@ -144,6 +146,7 @@ export function useReferralAccounts(
     status = "all",
     page = 1,
     pageSize = SOURCE_PAGE_SIZE,
+    websiteId: number | null = null,
 ) {
     const [result, setResult] = useState<SourceResult | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -155,7 +158,7 @@ export function useReferralAccounts(
         setIsLoading(true);
         setError(null);
         try {
-            const key = `referrals|${search}|${status}|${page}|${pageSize}`;
+            const key = `referrals|${search}|${status}|${page}|${pageSize}|${websiteId ?? "all"}`;
             const existing = referralInflight.get(key);
             const request =
                 existing ??
@@ -164,6 +167,7 @@ export function useReferralAccounts(
                     page,
                     limit: pageSize,
                     ...(status === "all" ? {} : { status }),
+                    ...(websiteId !== null ? { websiteId } : {}),
                 }).finally(() => {
                     if (referralInflight.get(key) === request) referralInflight.delete(key);
                 });
@@ -179,11 +183,42 @@ export function useReferralAccounts(
         } finally {
             if (requestId.current === id) setIsLoading(false);
         }
-    }, [search, status, page, pageSize]);
+    }, [search, status, page, pageSize, websiteId]);
 
     useEffect(() => {
         void refresh();
     }, [refresh]);
 
     return { result, isLoading, error, refresh };
+}
+
+/**
+ * Active referral websites for the referral tab's website filter. Loads once
+ * on mount; a catalogue failure resolves to [] so the toolbar keeps only
+ * "All websites" instead of breaking.
+ */
+export function useWebsites() {
+    const [websites, setWebsites] = useState<WebsiteOption[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            setIsLoading(true);
+            try {
+                const sites = await fetchWebsites();
+                if (!cancelled) setWebsites(sites);
+            } catch {
+                if (!cancelled) setWebsites([]);
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        }
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    return { websites, isLoading };
 }

@@ -24,6 +24,9 @@ export type DbFlag = z.infer<typeof DbFlagSchema>;
 
 export const ProductSchema = z.object({
     product_id: z.number().int(),
+    website_id: z.number().int(),
+    website_code: z.string().max(64).nullable().optional(),
+    website_name: z.string().max(191).nullable().optional(),
     product_code: z.string().min(1).max(64),
     name: z.string().min(1).max(191),
     description: z.string().max(500).nullable(),
@@ -46,6 +49,7 @@ const DescriptionValueSchema = z.union([
 
 export const ProductCreateSchema = z.object({
     product_code: z.string().min(1).max(64),
+    website_id: z.number().int().positive("Select a website."),
     name: z.string().min(1).max(191),
     description: DescriptionValueSchema.optional().default(null),
     sort_order: z.number().int().min(0).default(0),

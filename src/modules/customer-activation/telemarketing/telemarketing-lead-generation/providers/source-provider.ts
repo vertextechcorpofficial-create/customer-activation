@@ -76,12 +76,45 @@ export function fetchProspectingSource(
 const REFERRALS_BASE =
     "/api/customer-activation/telemarketing/telemarketing-lead-generation/referral-accounts";
 
+const WEBSITES_URL = "/api/customer-activation/telemarketing/telemarketing-products/websites";
+
+/** One referral website from the catalogue. Per-module copy by project rule: no cross-module imports. */
+export interface WebsiteOption {
+    website_id: number;
+    website_code: string;
+    name: string;
+    status: string;
+}
+
+/** Every active referral website, sorted by name. Never throws — resolves to []. */
+export async function fetchWebsites(signal?: AbortSignal): Promise<WebsiteOption[]> {
+    try {
+        const res = await fetch(WEBSITES_URL, {
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            signal,
+        });
+        const body = (await res.json().catch(() => null)) as {
+            success: boolean;
+            data?: WebsiteOption[];
+        } | null;
+        if (!res.ok || !body?.success) return [];
+        return (body.data ?? [])
+            .filter((site) => site.status === "active")
+            .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+        return [];
+    }
+}
+
 export interface ReferralQueryParams {
     search?: string;
     page?: number;
     limit?: number;
     /** `account_status` narrow. Absent means no narrowing. */
     status?: string;
+    /** Owning-website narrow. Absent means all websites. */
+    websiteId?: number;
 }
 
 /** One website registrant as served by the referral-accounts endpoint. */
@@ -97,6 +130,9 @@ export interface ReferralAccountRow {
     account_status: string | null;
     email_verified: number | boolean | null;
     created_at: string | null;
+    website_id: number | null;
+    website_code: string | null;
+    website_name: string | null;
 }
 
 interface ReferralListEnvelope {
@@ -123,6 +159,8 @@ export async function fetchReferralAccounts(
     const query = new URLSearchParams();
     if (params.search?.trim()) query.set("search", params.search.trim());
     if (params.status?.trim()) query.set("status", params.status.trim());
+    if (params.websiteId !== undefined && Number.isInteger(params.websiteId) && params.websiteId > 0)
+        query.set("websiteId", String(params.websiteId));
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const text = query.toString();
@@ -150,6 +188,13 @@ export async function fetchReferralAccounts(
         registeredAt: referralStr(row.created_at),
         accountStatus: referralStr(row.account_status),
         referrer_id: Number.isInteger(Number(row.referrer_id)) && Number(row.referrer_id) > 0 ? Number(row.referrer_id) : null,
+        websiteId:
+            Number.isInteger(Number((row as { website_id?: unknown }).website_id)) &&
+            Number((row as { website_id?: unknown }).website_id) > 0
+                ? Number((row as { website_id?: unknown }).website_id)
+                : null,
+        websiteCode: referralStr((row as { website_code?: unknown }).website_code as string | null),
+        websiteName: referralStr((row as { website_name?: unknown }).website_name as string | null),
     }));
     const total = Number(body.meta?.total);
     if (!Number.isInteger(total) || total <= 0) return { status: "empty" };

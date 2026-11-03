@@ -10,6 +10,7 @@ import {
 } from "@/modules/customer-activation/referrals/referral-campaigns/designer/schema";
 import {
     CampaignServiceError,
+    getCampaign,
     updateCampaign,
     writeCampaignContent,
 } from "@/modules/customer-activation/referrals/referral-campaigns/services/campaign-service";
@@ -30,6 +31,33 @@ async function campaignId(params: Promise<{ id: string }>): Promise<number | nul
     const { id } = await params;
     const parsed = Number(id);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * One campaign with its `website_id`, `website_code` and `website_name`.
+ */
+export async function GET(_request: Request, { params }: RouteContext) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token) {
+        return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    }
+
+    const id = await campaignId(params);
+    if (id === null) {
+        return NextResponse.json({ success: false, message: "Invalid campaign id" }, { status: 400 });
+    }
+
+    try {
+        const campaign = await getCampaign(id);
+        return NextResponse.json({ success: true, data: campaign });
+    } catch (error) {
+        console.error("[referrals/referral-campaigns] GET failed:", error);
+        const status = error instanceof CampaignServiceError ? error.status : 500;
+        const message =
+            error instanceof CampaignServiceError ? error.message : "Could not load the campaign";
+        return NextResponse.json({ success: false, message }, { status });
+    }
 }
 
 /**
@@ -132,6 +160,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         const status = error instanceof CampaignServiceError ? error.status : 500;
         const message =
             error instanceof CampaignServiceError ? error.message : "Could not update the campaign";
+        if (error instanceof CampaignServiceError && error.field) {
+            return NextResponse.json(
+                { success: false, message, errors: [{ field: error.field, message }] },
+                { status },
+            );
+        }
         return NextResponse.json({ success: false, message }, { status });
     }
 }

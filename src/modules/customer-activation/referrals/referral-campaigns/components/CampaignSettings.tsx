@@ -45,11 +45,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
+import { WebsiteCombobox, WebsiteFilterCombobox } from "./website-combobox";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { Campaign } from "../types/campaign.schema";
 import { durationTitle, formatCampaignDuration } from "./campaign-duration";
 import { useCampaigns } from "../hooks/use-campaigns";
+import { useWebsites } from "../hooks/use-websites";
 import styles from "./list-shell.module.css";
 
 const flagOn = (v: Campaign["is_active"]) => Number(v) === 1;
@@ -89,17 +91,19 @@ function CampaignStatus({ campaign }: { campaign: Campaign }) {
 interface FormState {
     campaign_code: string;
     title: string;
+    website_id: string;
     description: string;
     starts_at: string;
     ends_at: string;
     is_active: boolean;
 }
 
-type FormErrors = Partial<Record<"campaign_code" | "title" | "ends_at", string>>;
+type FormErrors = Partial<Record<"campaign_code" | "title" | "website_id" | "ends_at", string>>;
 
 const EMPTY_FORM: FormState = {
     campaign_code: "",
     title: "",
+    website_id: "",
     description: "",
     starts_at: "",
     ends_at: "",
@@ -110,6 +114,7 @@ function formFrom(campaign: Campaign): FormState {
     return {
         campaign_code: campaign.campaign_code,
         title: campaign.title,
+        website_id: campaign.website_id != null ? String(campaign.website_id) : "",
         description: campaign.description ?? "",
         starts_at: toInput(campaign.starts_at),
         ends_at: toInput(campaign.ends_at),
@@ -205,6 +210,8 @@ export function CampaignSettings() {
         setSearch,
         status,
         setStatus,
+        websiteId,
+        setWebsiteId,
         isLoading,
         error,
         refresh,
@@ -212,6 +219,12 @@ export function CampaignSettings() {
         updateCampaign,
         setCampaignActive,
     } = useCampaigns();
+    const {
+        websites,
+        isLoading: websitesLoading,
+        error: websitesError,
+        refresh: retryWebsites,
+    } = useWebsites();
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; campaign: Campaign } | null>(
         null,
     );
@@ -244,6 +257,7 @@ export function CampaignSettings() {
         if (!code) next.campaign_code = "Enter a campaign code.";
         else if (!CODE_PATTERN.test(code)) next.campaign_code = "Use lowercase letters, numbers, and hyphens.";
         if (!form.title.trim()) next.title = "Enter a campaign title.";
+        if (!form.website_id.trim()) next.website_id = "Select a website.";
         if (form.starts_at && form.ends_at && form.ends_at < form.starts_at)
             next.ends_at = "End date must not be before the start date.";
         setErrors(next);
@@ -257,6 +271,7 @@ export function CampaignSettings() {
         const payload = {
             campaign_code: form.campaign_code.trim(),
             title: form.title.trim(),
+            website_id: Number(form.website_id),
             description: form.description.trim() ? form.description.trim() : null,
             starts_at: toDb(form.starts_at),
             ends_at: toDb(form.ends_at),
@@ -298,8 +313,17 @@ export function CampaignSettings() {
             accessorKey: "title",
             header: "Title",
             cell: ({ row }) => (
-                <span className="block max-w-56 truncate font-medium" title={row.original.title}>
-                    {row.original.title}
+                <span className="block max-w-56">
+                    <span className="block truncate font-medium" title={row.original.title}>
+                        {row.original.title}
+                    </span>
+                    {row.original.website_name ? (
+                        <StatusPill tone="info" className="mt-1 w-fit max-w-full">
+                            <span className="block truncate" title={row.original.website_name}>
+                                {row.original.website_name}
+                            </span>
+                        </StatusPill>
+                    ) : null}
                 </span>
             ),
         },
@@ -365,6 +389,14 @@ export function CampaignSettings() {
                                 <SelectItem value="inactive">Inactive</SelectItem>
                             </SelectContent>
                         </Select>
+                        <WebsiteFilterCombobox
+                            value={websiteId}
+                            onChange={setWebsiteId}
+                            websites={websites}
+                            isLoading={websitesLoading}
+                            error={websitesError}
+                            onRetry={() => void retryWebsites()}
+                        />
                         <Button
                             variant="outline"
                             size="sm"
@@ -445,6 +477,11 @@ export function CampaignSettings() {
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className="min-w-0">
                                                             <p className="font-medium break-words">{campaign.title}</p>
+                                                            {campaign.website_name ? (
+                                                                <StatusPill tone="info" className="mt-1 w-fit max-w-full">
+                                                                    <span className="block truncate">{campaign.website_name}</span>
+                                                                </StatusPill>
+                                                            ) : null}
                                                             <p className="font-mono text-xs text-muted-foreground break-words">
                                                                 {campaign.campaign_code}
                                                             </p>
@@ -555,6 +592,40 @@ export function CampaignSettings() {
                                 {errors.title && (
                                     <p id="campaign-title-error" className="text-xs text-destructive">
                                         {errors.title}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="campaign-website">
+                                    Website <span className="text-destructive">*</span>
+                                </Label>
+                                {websitesError ? (
+                                    <p id="campaign-website-load-error" role="alert" className="text-xs text-destructive">
+                                        Could not load websites.{" "}
+                                        <button
+                                            type="button"
+                                            className="underline underline-offset-2"
+                                            onClick={() => void retryWebsites()}
+                                        >
+                                            Retry
+                                        </button>
+                                    </p>
+                                ) : (
+                                    <WebsiteCombobox
+                                        controlId="campaign-website"
+                                        value={form.website_id}
+                                        onChange={(websiteId) => setField("website_id", websiteId)}
+                                        websites={websites}
+                                        websitesLoading={websitesLoading}
+                                        invalid={Boolean(errors.website_id)}
+                                        describedBy={
+                                            errors.website_id ? "campaign-website-error" : undefined
+                                        }
+                                    />
+                                )}
+                                {errors.website_id && (
+                                    <p id="campaign-website-error" className="text-xs text-destructive">
+                                        {errors.website_id}
                                     </p>
                                 )}
                             </div>

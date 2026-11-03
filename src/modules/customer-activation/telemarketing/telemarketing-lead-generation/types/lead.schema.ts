@@ -77,6 +77,12 @@ export interface SourceRow {
     accountStatus?: string | null;
     /** Referral accounts only: `referrer_id`, sent on create to link the lead. */
     referrer_id?: number | null;
+    /** Referral accounts only: owning website (`website_id`). Null when unassigned. */
+    websiteId?: number | null;
+    /** Referral accounts only: owning website code. */
+    websiteCode?: string | null;
+    /** Referral accounts only: owning website name, shown as a chip. */
+    websiteName?: string | null;
     /**
      * Referral accounts only: the code attached at registration
      * (`attached_referral_code`). Decides the lead `source` — never sent

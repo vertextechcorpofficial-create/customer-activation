@@ -30,8 +30,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     return body.data as T;
 }
 
-export function getProducts(): Promise<Product[]> {
-    return request<Product[]>(BASE);
+export interface ProductListQuery {
+    websiteId?: number | null;
+}
+
+export function getProducts(query?: ProductListQuery): Promise<Product[]> {
+    const params = new URLSearchParams();
+    if (query?.websiteId != null) params.set("websiteId", String(query.websiteId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    return request<Product[]>(`${BASE}${suffix}`);
 }
 
 export function createProduct(input: ProductCreate): Promise<Product> {

@@ -31,6 +31,21 @@ interface TelemarketingProduct {
     name: string;
     is_active: number | boolean;
     sort_order: number | null;
+    website_id?: number | null;
+    website_code?: string | null;
+    website_name?: string | null;
+}
+
+/** Distinct site key — products without any site field all share one bucket. */
+function siteKey(p: TelemarketingProduct): string | number {
+    return (p.website_id ?? p.website_code ?? p.website_name ?? "__single__") as string | number;
+}
+
+/** `name — website` only when the catalogue spans sites; plain name otherwise. */
+function productLabel(p: TelemarketingProduct, multiSite: boolean): string {
+    if (!multiSite) return p.name;
+    const site = (p.website_name ?? "").trim();
+    return site ? `${p.name} — ${site}` : p.name;
 }
 
 /**
@@ -96,13 +111,24 @@ function ProductCombobox({
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const q = query.trim().toLowerCase();
+    const multiSite = new Set(products.map(siteKey)).size > 1;
     const filtered = q
-        ? products.filter(
-              (p) => p.name.toLowerCase().includes(q) || p.product_code.toLowerCase().includes(q),
-          )
+        ? products.filter((p) => {
+              const label = productLabel(p, multiSite).toLowerCase();
+              return (
+                  label.includes(q) ||
+                  p.name.toLowerCase().includes(q) ||
+                  p.product_code.toLowerCase().includes(q) ||
+                  (p.website_name ?? "").toLowerCase().includes(q)
+              );
+          })
         : products;
     const selected = products.find((p) => p.product_id === value) ?? null;
-    const label = selected ? selected.name : isLoading ? "Loading products…" : "Select a product";
+    const label = selected
+        ? productLabel(selected, multiSite)
+        : isLoading
+          ? "Loading products…"
+          : "Select a product";
 
     return (
         <>
@@ -144,28 +170,31 @@ function ProductCombobox({
                                       : "No products found."}
                             </CommandEmpty>
                             <CommandGroup>
-                                {filtered.map((p) => (
-                                    <CommandItem
-                                        key={p.product_id}
-                                        value={`${p.name} ${p.product_code}`}
-                                        keywords={[p.name, p.product_code]}
-                                        title={p.name}
-                                        onSelect={() => {
-                                            onChange(p.product_id);
-                                            setOpen(false);
-                                            setQuery("");
-                                        }}
-                                    >
-                                        <Check
-                                            className={cn(
-                                                "size-4 shrink-0",
-                                                p.product_id === value ? "opacity-100" : "opacity-0",
-                                            )}
-                                            aria-hidden
-                                        />
-                                        <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                                    </CommandItem>
-                                ))}
+                                {filtered.map((p) => {
+                                    const optionLabel = productLabel(p, multiSite);
+                                    return (
+                                        <CommandItem
+                                            key={p.product_id}
+                                            value={`${optionLabel} ${p.product_code} ${p.product_id}`}
+                                            keywords={[optionLabel, p.name, p.product_code]}
+                                            title={optionLabel}
+                                            onSelect={() => {
+                                                onChange(p.product_id);
+                                                setOpen(false);
+                                                setQuery("");
+                                            }}
+                                        >
+                                            <Check
+                                                className={cn(
+                                                    "size-4 shrink-0",
+                                                    p.product_id === value ? "opacity-100" : "opacity-0",
+                                                )}
+                                                aria-hidden
+                                            />
+                                            <span className="min-w-0 flex-1 truncate">{optionLabel}</span>
+                                        </CommandItem>
+                                    );
+                                })}
                             </CommandGroup>
                         </CommandList>
                     </Command>

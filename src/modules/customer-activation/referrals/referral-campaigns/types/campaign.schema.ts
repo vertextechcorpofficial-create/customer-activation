@@ -37,6 +37,9 @@ const NullableDatetimeSchema = z.string().min(1).nullable().optional();
 
 export const CampaignSchema = z.object({
     campaign_id: z.number().int(),
+    website_id: z.number().int(),
+    website_code: z.string().max(64).nullable().optional(),
+    website_name: z.string().max(191).nullable().optional(),
     campaign_code: z.string().min(1).max(64),
     title: z.string().min(1).max(191),
     description: z.string().nullable().optional(),
@@ -60,6 +63,7 @@ const WINDOW_MESSAGE = "End date must not be before the start date.";
 
 const CampaignBaseSchema = z.object({
     campaign_code: CampaignCodeSchema,
+    website_id: z.number().int().positive("Select a website."),
     title: z.string().min(1, "Enter a campaign title.").max(191),
     description: z.string().max(65535).nullable().optional(),
     starts_at: NullableDatetimeSchema,

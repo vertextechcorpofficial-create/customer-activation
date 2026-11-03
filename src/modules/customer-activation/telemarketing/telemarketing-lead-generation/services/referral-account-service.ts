@@ -5,7 +5,7 @@ import { dFetch } from "../utils/directus";
 const COLLECTION = "referrals_account";
 
 export const REFERRAL_ACCOUNT_FIELDS =
-    "referrer_id,referrer_code,attached_referral_code,full_name,company_name,position,mobile,email,account_status,email_verified,created_at";
+    "referrer_id,referrer_code,attached_referral_code,full_name,company_name,position,mobile,email,account_status,email_verified,created_at,website_id";
 
 export type ReferralAccountStatus = "pending_verification" | "active" | "suspended";
 
@@ -21,6 +21,9 @@ export interface ReferralAccount {
     account_status: ReferralAccountStatus | string | null;
     email_verified: number | boolean | null;
     created_at: string | null;
+    website_id: number;
+    website_code: string | null;
+    website_name: string | null;
 }
 
 export interface ReferralAccountQuery {
@@ -28,6 +31,7 @@ export interface ReferralAccountQuery {
     limit: number;
     search?: string;
     status?: ReferralAccountStatus;
+    websiteId?: number;
 }
 
 export interface ReferralAccountPage {
@@ -71,15 +75,28 @@ function readTotal(body: unknown, fallback: number): number {
     return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
+interface ReferralWebsite {
+    website_id: number;
+    website_code: string;
+    name: string;
+}
+
+type RawReferralAccount = Omit<ReferralAccount, "website_id" | "website_code" | "website_name"> & {
+    website_id: number | null;
+};
+
 /**
  * One server-paged window of `referrals_account`, newest first.
  * `total` is the filtered total from `meta=filter_count`.
+ * Website rows are fetched once per request and mapped in code; an
+ * unresolvable website yields null code/name, never an invented value.
  */
 export async function listReferralAccounts(query: ReferralAccountQuery): Promise<ReferralAccountPage> {
     const page = Math.trunc(query.page);
     const limit = Math.trunc(query.limit);
     const clauses: Record<string, unknown>[] = [];
     if (query.status) clauses.push({ account_status: { _eq: query.status } });
+    if (query.websiteId !== undefined) clauses.push({ website_id: { _eq: query.websiteId } });
     const search = query.search?.trim();
     if (search) {
         clauses.push({
@@ -101,6 +118,22 @@ export async function listReferralAccounts(query: ReferralAccountQuery): Promise
             meta: "filter_count",
         })}`,
     );
-    const items = readList<ReferralAccount>(body);
-    return { items, total: readTotal(body, items.length), page, limit };
+    const items = readList<RawReferralAccount>(body);
+    const sitesBody = await dFetch<{ data?: ReferralWebsite[] }>(
+        `/items/referrals_website?fields=website_id,website_code,name&limit=-1`,
+    );
+    const sites = new Map<number, ReferralWebsite>();
+    for (const site of sitesBody?.data ?? []) {
+        if (typeof site?.website_id === "number") sites.set(site.website_id, site);
+    }
+    const enriched: ReferralAccount[] = items.map((item) => {
+        const site = typeof item.website_id === "number" ? sites.get(item.website_id) : undefined;
+        return {
+            ...item,
+            website_id: item.website_id as number,
+            website_code: site?.website_code ?? null,
+            website_name: site?.name ?? null,
+        };
+    });
+    return { items: enriched, total: readTotal(body, items.length), page, limit };
 }

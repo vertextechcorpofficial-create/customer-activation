@@ -32,6 +32,7 @@ export function useCampaigns() {
     const [pagination, setPagination] = useState<CampaignPagination>({ pageIndex: 0, pageSize: 10 });
     const [search, setSearch] = useState("");
     const [status, setStatus] = useState<CampaignStatusFilter>("all");
+    const [websiteId, setWebsiteId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const requestId = useRef(0);
@@ -49,6 +50,7 @@ export function useCampaigns() {
                     limit: pagination.pageSize,
                     search,
                     status,
+                    websiteId,
                 });
                 if (signal.cancelled || requestId.current !== id) return;
                 setCampaigns(page.rows);
@@ -62,7 +64,7 @@ export function useCampaigns() {
                 if (!signal.cancelled && requestId.current === id) setIsLoading(false);
             }
         },
-        [pagination, search, status],
+        [pagination, search, status, websiteId],
     );
 
     useEffect(() => {
@@ -86,6 +88,7 @@ export function useCampaigns() {
                 limit: pagination.pageSize,
                 search,
                 status,
+                websiteId,
             });
             setCampaigns(page.rows);
             setTotal(page.total);
@@ -93,7 +96,7 @@ export function useCampaigns() {
         } catch {
             // the write already succeeded — keep the page we have
         }
-    }, [pagination, search, status]);
+    }, [pagination, search, status, websiteId]);
 
     /** Table-driven paging: setting state refetches the new page via `load`. */
     const onPaginationChange = useCallback((next: CampaignPagination) => {
@@ -107,6 +110,11 @@ export function useCampaigns() {
 
     const updateStatus = useCallback((value: CampaignStatusFilter) => {
         setStatus(value);
+        setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    }, []);
+
+    const updateWebsiteId = useCallback((value: number | null) => {
+        setWebsiteId(value);
         setPagination((prev) => ({ ...prev, pageIndex: 0 }));
     }, []);
 
@@ -167,6 +175,8 @@ export function useCampaigns() {
         setSearch: updateSearch,
         status,
         setStatus: updateStatus,
+        websiteId,
+        setWebsiteId: updateWebsiteId,
         isLoading,
         error,
         refresh,

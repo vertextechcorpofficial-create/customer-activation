@@ -29,10 +29,18 @@ export async function GET(request: Request) {
     }
 
     const params = new URL(request.url).searchParams;
+    const rawWebsiteId = params.get("websiteId") ?? undefined;
+    let websiteId: number | undefined;
+    if (rawWebsiteId !== undefined) {
+        websiteId = Number(rawWebsiteId);
+        if (!Number.isInteger(websiteId) || (websiteId as number) < 1) {
+            return NextResponse.json({ success: false, message: "Invalid websiteId" }, { status: 400 });
+        }
+    }
     // No paging params: keep the legacy full-catalogue behaviour for existing callers.
     if (!params.has("page") && !params.has("limit") && !params.has("search") && !params.has("status")) {
         try {
-            const products = await listProducts();
+            const products = await listProducts({ websiteId });
             return NextResponse.json({
                 success: true,
                 data: products,
@@ -65,6 +73,7 @@ export async function GET(request: Request) {
             limit: Number.isFinite(limit) ? limit : 20,
             search,
             status,
+            websiteId,
         });
         return NextResponse.json({
             success: true,
@@ -115,6 +124,12 @@ export async function POST(request: Request) {
         const status = error instanceof ProductServiceError ? error.status : 500;
         const message =
             error instanceof ProductServiceError ? error.message : "Could not create the product";
+        if (error instanceof ProductServiceError && error.field) {
+            return NextResponse.json(
+                { success: false, message, errors: [{ field: error.field, message }] },
+                { status },
+            );
+        }
         return NextResponse.json({ success: false, message }, { status });
     }
 }

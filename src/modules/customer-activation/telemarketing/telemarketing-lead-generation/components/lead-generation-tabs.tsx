@@ -50,7 +50,7 @@ import {
     type ClientOption,
     type SourceRow,
 } from "../types/lead.schema";
-import { useClients, useClientSource, useReferralAccounts, type ClientSourceKind as SourceKind } from "../hooks/use-sources";
+import { useClients, useClientSource, useReferralAccounts, useWebsites, type ClientSourceKind as SourceKind } from "../hooks/use-sources";
 import { createLead } from "../providers/lead-provider";
 import { CreateLeadDialog, ProductCombobox, warnProvenanceOnce, type LeadPrefill } from "./create-lead-dialog";
 import { StatusPill, type Tone } from "./status-pill";
@@ -76,6 +76,8 @@ function toPrefill(row: SourceRow, dealerId: number): LeadPrefill {
             party_id: null,
             dealer_id: dealerId,
             referrer_id: row.referrer_id ?? (Number.isInteger(row.id) && row.id > 0 ? row.id : null),
+            website_id: row.websiteId ?? null,
+            website_name: row.websiteName ?? null,
         };
     }
     return {
@@ -327,6 +329,26 @@ function SourceTable({
     const someSelected = rows.some((row) => selected.has(rowKey(row)));
     const bulkNeedsProduct = bulkProductId === null;
     const bulkHintId = `bulk-product-${kind}-hint`;
+    // Referral conversion must not mix brands: the distinct owning websites
+    // across the selection. Null (unassigned) is its own bucket — mixing it
+    // with a branded account is still mixing.
+    const selectedRows = [...selected.values()];
+    const selectedSiteKeys = new Set(selectedRows.map((row) => row.websiteId ?? 0));
+    const mixedWebsites = isReferral && selectedSiteKeys.size > 1;
+    const singleWebsiteId =
+        isReferral && !mixedWebsites && selectedRows.length > 0
+            ? (selectedRows[0].websiteId ?? null)
+            : null;
+    const scopeKey = isReferral ? (mixedWebsites ? "mixed" : `site:${singleWebsiteId ?? "none"}`) : "na";
+    const [lastScopeKey, setLastScopeKey] = useState(scopeKey);
+    // A scope change invalidates the picked product (it may belong to the
+    // wrong brand), so the next selection starts disabled with the reason
+    // visible. Same-brand additions keep the pick.
+    if (scopeKey !== lastScopeKey) {
+        setLastScopeKey(scopeKey);
+        setBulkProductId(null);
+        setBulkProductError(null);
+    }
     // Clearing the last row resets the product choice too, so the next
     // selection starts disabled with the reason visible.
     function clearSelection() {
@@ -367,6 +389,9 @@ function SourceTable({
     async function runBulk() {
         const targets = [...selected.values()];
         if (targets.length === 0 || bulkRunning) return;
+        // Never convert accounts of different websites together — one bulk
+        // product cannot belong to two brands at once.
+        if (isReferral && new Set(targets.map((row) => row.websiteId ?? 0)).size > 1) return;
         // A lead requires a product and the bulk path used to send none —
         // every row landed in the null-product bucket (or failed a stricter
         // validation). Block here until the agent picks one.
@@ -448,9 +473,10 @@ function SourceTable({
                                     setBulkProductId(id);
                                     setBulkProductError(null);
                                 }}
-                                disabled={bulkRunning}
+                                disabled={bulkRunning || mixedWebsites}
                                 invalid={Boolean(bulkProductError)}
                                 describedBy={bulkNeedsProduct ? bulkHintId : undefined}
+                                websiteId={isReferral ? singleWebsiteId : null}
                             />
                             {bulkNeedsProduct ? (
                                 <p
@@ -477,10 +503,16 @@ function SourceTable({
                         <Button
                             size="sm"
                             onClick={() => void runBulk()}
-                            disabled={bulkRunning || bulkNeedsProduct}
+                            disabled={bulkRunning || bulkNeedsProduct || mixedWebsites}
                             aria-label={`Create leads for ${selectedCount} selected row${selectedCount === 1 ? "" : "s"}`}
                             aria-describedby={bulkNeedsProduct ? bulkHintId : undefined}
-                            title={bulkNeedsProduct ? "Select a product to enable bulk create" : undefined}
+                            title={
+                                mixedWebsites
+                                    ? "Select accounts from one website to convert together"
+                                    : bulkNeedsProduct
+                                      ? "Select a product to enable bulk create"
+                                      : undefined
+                            }
                         >
                             {bulkRunning
                                 ? `Creating ${bulkDone} of ${bulkTotal}…`
@@ -488,6 +520,11 @@ function SourceTable({
                         </Button>
                     </div>
                 </div>
+            ) : null}
+            {mixedWebsites ? (
+                <p className="text-sm text-destructive" role="alert">
+                    Select accounts from one website to convert together
+                </p>
             ) : null}
             {lastSummary ? (
                 <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -552,6 +589,11 @@ function SourceTable({
                             </p>
                             {isReferral ? (
                                 <div className="flex flex-wrap items-center gap-2">
+                                    {row.websiteName ? (
+                                        <StatusPill tone="neutral">{row.websiteName}</StatusPill>
+                                    ) : (
+                                        <span className="text-xs text-muted-foreground">—</span>
+                                    )}
                                     <StatusPill tone={accountTone(row.accountStatus)}>
                                         {row.accountStatus ?? "Unknown"}
                                     </StatusPill>
@@ -585,7 +627,7 @@ function SourceTable({
             </ul>
 
             <div className="hidden overflow-x-auto rounded-md border sm:block">
-                    <table className={isReferral ? "w-full caption-bottom text-sm min-w-[880px]" : "w-full caption-bottom text-sm min-w-[760px]"}>
+                    <table className={isReferral ? "w-full caption-bottom text-sm min-w-[960px]" : "w-full caption-bottom text-sm min-w-[760px]"}>
                         <TableHeader className="bg-muted">
                             <TableRow>
                                 <TableHead className="w-10">
@@ -600,6 +642,7 @@ function SourceTable({
                                         <TableHead>Code</TableHead>
                                         <TableHead>Name</TableHead>
                                         <TableHead>Company</TableHead>
+                                        <TableHead>Website</TableHead>
                                         <TableHead>Mobile</TableHead>
                                         <TableHead>Email</TableHead>
                                         <TableHead>Registered</TableHead>
@@ -672,6 +715,20 @@ function SourceTable({
                                                     >
                                                         {row.company ?? "—"}
                                                     </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {row.websiteName ? (
+                                                        <StatusPill tone="neutral">
+                                                            <span
+                                                                className="block max-w-32 truncate"
+                                                                title={row.websiteName}
+                                                            >
+                                                                {row.websiteName}
+                                                            </span>
+                                                        </StatusPill>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
                                                     <span
@@ -999,6 +1056,7 @@ function ReferralPanel({
     dealerId,
     search,
     status,
+    websiteId,
     isFiltered,
     page,
     pageSize,
@@ -1010,6 +1068,7 @@ function ReferralPanel({
     dealerId: number;
     search: string;
     status: string;
+    websiteId: number | null;
     isFiltered: boolean;
     page: number;
     pageSize: number;
@@ -1023,6 +1082,7 @@ function ReferralPanel({
         status,
         page,
         pageSize,
+        websiteId,
     );
 
     const total = result?.status === "ok" ? result.total : 0;
@@ -1047,7 +1107,7 @@ function ReferralPanel({
         if (result.rows.length === 0 && result.total > 0) return <PanelSkeleton rows={pageSize} />;
         return (
             <SourceTable
-                key={`referrals-${dealerId}-${search}-${status}-${pageSize}`}
+                key={`referrals-${dealerId}-${search}-${status}-${websiteId ?? "all"}-${pageSize}`}
                 kind="referrals"
                 variant="referral"
                 rows={result.rows}
@@ -1109,6 +1169,7 @@ export function LeadGenerationTabs() {
     const [prospectingPage, setProspectingPage] = useState(1);
     const [referralsPage, setReferralsPage] = useState(1);
     const [referralStatus, setReferralStatus] = useState("all");
+    const [referralWebsite, setReferralWebsite] = useState("all");
     // Account statuses the API has actually returned — the toolbar filter
     // only offers these, never invented values.
     const [knownStatuses, setKnownStatuses] = useState<string[]>([]);
@@ -1123,7 +1184,9 @@ export function LeadGenerationTabs() {
     const [tab, setTab] = useState<SourceKind | "referrals">("customer");
     const hasFilter =
         search.trim() !== "" ||
-        (tab === "referrals" ? referralStatus !== "all" : contactFilter !== "all");
+        (tab === "referrals"
+            ? referralStatus !== "all" || referralWebsite !== "all"
+            : contactFilter !== "all");
 
     const reportReferralStatuses = useCallback((statuses: string[]) => {
         setKnownStatuses((prev) => {
@@ -1135,6 +1198,11 @@ export function LeadGenerationTabs() {
 
     const { clients, isLoading: clientsLoading, error: clientsError, refresh: refreshClients } =
         useClients();
+
+    // Referral websites catalogue — the website filter offers every active
+    // site (All websites first, then each by name), not just the brands on
+    // the current page.
+    const { websites } = useWebsites();
 
     const writeClientParam = useCallback(
         (id: number | null) => {
@@ -1197,6 +1265,11 @@ export function LeadGenerationTabs() {
         setLastReferralStatus(referralStatus);
         setReferralsPage(1);
     }
+    const [lastReferralWebsite, setLastReferralWebsite] = useState(referralWebsite);
+    if (referralWebsite !== lastReferralWebsite) {
+        setLastReferralWebsite(referralWebsite);
+        setReferralsPage(1);
+    }
 
     function pickClient(id: number) {
         setDealerId(id);
@@ -1217,6 +1290,7 @@ export function LeadGenerationTabs() {
         setSearch("");
         setContactFilter("all");
         setReferralStatus("all");
+        setReferralWebsite("all");
         setCustomerPage(1);
         setProspectingPage(1);
         setReferralsPage(1);
@@ -1280,25 +1354,46 @@ export function LeadGenerationTabs() {
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                             {tab === "referrals" ? (
-                                <Select
-                                    value={referralStatus}
-                                    onValueChange={setReferralStatus}
-                                >
-                                    <SelectTrigger
-                                        className="w-full sm:w-[170px]"
-                                        aria-label="Filter by account status"
+                                <>
+                                    <Select
+                                        value={referralWebsite}
+                                        onValueChange={setReferralWebsite}
                                     >
-                                        <SelectValue placeholder="Status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All statuses</SelectItem>
-                                        {knownStatuses.map((s) => (
-                                            <SelectItem key={s} value={s}>
-                                                {s}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                        <SelectTrigger
+                                            className="w-full sm:w-[170px]"
+                                            aria-label="Filter by website"
+                                        >
+                                            <SelectValue placeholder="Website" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All websites</SelectItem>
+                                            {websites.map((w) => (
+                                                <SelectItem key={w.website_id} value={String(w.website_id)}>
+                                                    {w.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select
+                                        value={referralStatus}
+                                        onValueChange={setReferralStatus}
+                                    >
+                                        <SelectTrigger
+                                            className="w-full sm:w-[170px]"
+                                            aria-label="Filter by account status"
+                                        >
+                                            <SelectValue placeholder="Status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All statuses</SelectItem>
+                                            {knownStatuses.map((s) => (
+                                                <SelectItem key={s} value={s}>
+                                                    {s}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </>
                             ) : (
                                 <Select
                                     value={contactFilter}
@@ -1406,8 +1501,13 @@ export function LeadGenerationTabs() {
                                 dealerId={resolved}
                                 search={debouncedSearch}
                                 status={referralStatus}
+                                websiteId={
+                                    referralWebsite === "all" ? null : Number(referralWebsite)
+                                }
                                 isFiltered={
-                                    search.trim() !== "" || referralStatus !== "all"
+                                    search.trim() !== "" ||
+                                    referralStatus !== "all" ||
+                                    referralWebsite !== "all"
                                 }
                                 page={referralsPage}
                                 pageSize={pageSize}
