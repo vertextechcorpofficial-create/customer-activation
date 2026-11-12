@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,7 @@ export function ProductCombobox({
     invalid,
     describedBy,
     websiteId,
+    preselectCode,
 }: {
     controlId: string;
     value: number | null;
@@ -120,6 +121,12 @@ export function ProductCombobox({
      * no narrowing.
      */
     websiteId?: number | null;
+    /**
+     * Referral conversion only: product code to preselect, matched within
+     * the scoped (website-narrowed) list. A code that matches nothing leaves
+     * the picker empty — the required-product validation speaks instead.
+     */
+    preselectCode?: string | null;
 }) {
     const { products, isLoading, error, retry } = useProducts();
     const [open, setOpen] = useState(false);
@@ -129,6 +136,28 @@ export function ProductCombobox({
         websiteId === null || websiteId === undefined
             ? products
             : products.filter((p) => Number(p.website_id) === websiteId);
+    const code = preselectCode?.trim() ?? "";
+    // Preselect once per code: an exact (case-insensitive) match on
+    // `product_code` within the account's own website wins. A ref (not
+    // state) guards repeats, and a parent reset back to null re-arms the
+    // same code — e.g. dialog reopen or bulk clear-then-reselect.
+    const appliedRef = useRef<string | null>(null);
+    const prevValueRef = useRef<number | null>(null);
+    useEffect(() => {
+        // A parent reset back to null (dialog reopen, bulk clear) re-arms
+        // the same code instead of sticking to a stale guard.
+        if (prevValueRef.current !== null && value === null) appliedRef.current = null;
+        prevValueRef.current = value;
+        if (isLoading || value !== null || !code || appliedRef.current === code) return;
+        const match = scoped.find((p) => p.product_code.trim().toLowerCase() === code.toLowerCase());
+        if (!match) return;
+        appliedRef.current = code;
+        onChange(match.product_id);
+    }, [isLoading, value, code, scoped, onChange]);
+    const scopedMatch = code
+        ? scoped.find((p) => p.product_code.trim().toLowerCase() === code.toLowerCase())
+        : undefined;
+    const unmatched = !isLoading && !error && code !== "" && value === null && !scopedMatch;
     const multiSite = new Set(products.map(siteKey)).size > 1;
     const filtered = q
         ? scoped.filter((p) => {
@@ -229,6 +258,11 @@ export function ProductCombobox({
                         Retry
                     </button>
                 </p>
+            ) : unmatched ? (
+                <p className="text-xs text-muted-foreground">
+                    No product matches &ldquo;{code}&rdquo; in this website&rsquo;s catalogue —
+                    pick the closest one.
+                </p>
             ) : null}
         </>
     );
@@ -256,6 +290,12 @@ export interface LeadPrefill {
     website_id?: number | null;
     /** Referral accounts only: owning website name — display only. */
     website_name?: string | null;
+    /**
+     * Referral accounts only: product code the account asked for — the
+     * dialog preselects the matching product within `website_id`. Empty
+     * when the account carries no enquiry; never invented.
+     */
+    product_code?: string | null;
 }
 
 let provenanceWarned = false;
@@ -518,6 +558,7 @@ export function CreateLeadDialog({
                             invalid={Boolean(fieldErrors.product)}
                             describedBy={fieldErrors.product ? "lg-product-error" : undefined}
                             websiteId={prefill?.website_id ?? null}
+                            preselectCode={prefill?.product_code ?? null}
                         />
                         {fieldErrors.product ? (
                             <p id="lg-product-error" role="alert" className="text-xs text-destructive">

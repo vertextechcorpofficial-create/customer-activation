@@ -5,7 +5,7 @@ import { dFetch } from "../utils/directus";
 const COLLECTION = "referrals_account";
 
 export const REFERRAL_ACCOUNT_FIELDS =
-    "referrer_id,referrer_code,attached_referral_code,full_name,company_name,position,mobile,email,account_status,email_verified,created_at,website_id";
+    "referrer_id,referrer_code,attached_referral_code,full_name,company_name,position,mobile,email,account_status,email_verified,created_at,website_id,product_code,need_text,address,industry,consent_accepted_at";
 
 export type ReferralAccountStatus = "pending_verification" | "active" | "suspended";
 
@@ -22,8 +22,21 @@ export interface ReferralAccount {
     email_verified: number | boolean | null;
     created_at: string | null;
     website_id: number;
+    /** Product code the registrant asked for (`product_code`). Null when no enquiry. */
+    product_code: string | null;
+    /** Free-text need stored at registration (`need_text`). */
+    need_text: string | null;
+    /** Address as given at registration. */
+    address: string | null;
+    /** Industry as given at registration. */
+    industry: string | null;
+    /** Raw consent timestamp (`consent_accepted_at`). */
+    consent_accepted_at: string | null;
     website_code: string | null;
     website_name: string | null;
+    /** Signup-created lead (`telemarketing_lead.referrer_id`). Null when unconverted. */
+    lead_id: number | null;
+    lead_code: string | null;
 }
 
 export interface ReferralAccountQuery {
@@ -85,11 +98,20 @@ type RawReferralAccount = Omit<ReferralAccount, "website_id" | "website_code" | 
     website_id: number | null;
 };
 
+interface ReferralLead {
+    lead_id: number;
+    lead_code: string;
+    referrer_id: number | null;
+}
+
 /**
  * One server-paged window of `referrals_account`, newest first.
  * `total` is the filtered total from `meta=filter_count`.
  * Website rows are fetched once per request and mapped in code; an
  * unresolvable website yields null code/name, never an invented value.
+ * Signup-created leads are resolved in one batched query over the page's
+ * account ids (`referrer_id _in`); the most recent lead (`-lead_id`) wins
+ * per account, otherwise `lead_id`/`lead_code` stay null.
  */
 export async function listReferralAccounts(query: ReferralAccountQuery): Promise<ReferralAccountPage> {
     const page = Math.trunc(query.page);
@@ -126,13 +148,32 @@ export async function listReferralAccounts(query: ReferralAccountQuery): Promise
     for (const site of sitesBody?.data ?? []) {
         if (typeof site?.website_id === "number") sites.set(site.website_id, site);
     }
+    const leadByReferrer = new Map<number, ReferralLead>();
+    const accountIds = items.filter((item) => Number.isInteger(item.referrer_id)).map((item) => item.referrer_id);
+    if (accountIds.length > 0) {
+        const leadsBody = await dFetch(
+            `/items/telemarketing_lead${qs({
+                filter: JSON.stringify({ referrer_id: { _in: accountIds } }),
+                fields: "lead_id,lead_code,referrer_id",
+                sort: "-lead_id",
+                limit: "-1",
+            })}`,
+        );
+        for (const lead of readList<ReferralLead>(leadsBody)) {
+            if (typeof lead?.referrer_id !== "number" || typeof lead?.lead_id !== "number") continue;
+            if (!leadByReferrer.has(lead.referrer_id)) leadByReferrer.set(lead.referrer_id, lead);
+        }
+    }
     const enriched: ReferralAccount[] = items.map((item) => {
         const site = typeof item.website_id === "number" ? sites.get(item.website_id) : undefined;
+        const lead = leadByReferrer.get(item.referrer_id);
         return {
             ...item,
             website_id: item.website_id as number,
             website_code: site?.website_code ?? null,
             website_name: site?.name ?? null,
+            lead_id: lead?.lead_id ?? null,
+            lead_code: lead?.lead_code ?? null,
         };
     });
     return { items: enriched, total: readTotal(body, items.length), page, limit };

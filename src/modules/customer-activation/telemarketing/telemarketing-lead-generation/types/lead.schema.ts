@@ -89,6 +89,27 @@ export interface SourceRow {
      * itself. Absent until the referral-accounts endpoint selects it.
      */
     attachedReferralCode?: string | null;
+    /**
+     * Referral accounts only: signup-created lead (`telemarketing_lead` via
+     * `referrer_id`). Non-null means the account already converted — offer
+     * "Open lead", never "Create lead".
+     */
+    leadId?: number | null;
+    /** Referral accounts only: code of the signup-created lead. Null when unconverted. */
+    leadCode?: string | null;
+    /**
+     * Referral accounts only: product code the registrant asked for
+     * (`product_code`). Null when the account carries no enquiry.
+     */
+    productCode?: string | null;
+    /** Referral accounts only: free-text need (`need_text`). */
+    needText?: string | null;
+    /** Referral accounts only: address as given at registration. */
+    enquiryAddress?: string | null;
+    /** Referral accounts only: industry as given at registration. */
+    enquiryIndustry?: string | null;
+    /** Referral accounts only: raw consent timestamp (`consent_accepted_at`). */
+    consentAcceptedAt?: string | null;
 }
 
 /**

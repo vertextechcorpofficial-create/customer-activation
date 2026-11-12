@@ -133,6 +133,20 @@ export interface ReferralAccountRow {
     website_id: number | null;
     website_code: string | null;
     website_name: string | null;
+    /** Product code the registrant asked for (`product_code`). */
+    product_code?: string | null;
+    /** Free-text need stored at registration (`need_text`). */
+    need_text?: string | null;
+    /** Address as given at registration. */
+    address?: string | null;
+    /** Industry as given at registration. */
+    industry?: string | null;
+    /** Raw consent timestamp (`consent_accepted_at`). */
+    consent_accepted_at?: string | null;
+    /** Signup-created lead id. Null when the account never converted. */
+    lead_id?: number | null;
+    /** Signup-created lead code. Null when the account never converted. */
+    lead_code?: string | null;
 }
 
 interface ReferralListEnvelope {
@@ -144,6 +158,11 @@ interface ReferralListEnvelope {
 
 function referralStr(v: unknown): string | null {
     return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function referralLeadId(v: unknown): number | null {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /**
@@ -195,6 +214,13 @@ export async function fetchReferralAccounts(
                 : null,
         websiteCode: referralStr((row as { website_code?: unknown }).website_code as string | null),
         websiteName: referralStr((row as { website_name?: unknown }).website_name as string | null),
+        leadId: referralLeadId((row as { lead_id?: unknown }).lead_id),
+        leadCode: referralStr((row as { lead_code?: unknown }).lead_code),
+        productCode: referralStr((row as { product_code?: unknown }).product_code),
+        needText: referralStr((row as { need_text?: unknown }).need_text),
+        enquiryAddress: referralStr((row as { address?: unknown }).address),
+        enquiryIndustry: referralStr((row as { industry?: unknown }).industry),
+        consentAcceptedAt: referralStr((row as { consent_accepted_at?: unknown }).consent_accepted_at),
     }));
     const total = Number(body.meta?.total);
     if (!Number.isInteger(total) || total <= 0) return { status: "empty" };
