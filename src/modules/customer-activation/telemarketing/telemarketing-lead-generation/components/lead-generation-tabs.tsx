@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, ChevronLeft, ChevronRight, ChevronsUpDown, Plus, Search, Users } from "lucide-react";
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, ChevronsUpDown, Plus, RefreshCw, Search, Users } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
     Command,
@@ -45,17 +46,45 @@ import { cn } from "@/lib/utils";
 import {
     LeadCreateSchema,
     SOURCE_PAGE_SIZE,
+    leadSourceForRow,
     type ClientOption,
     type SourceRow,
 } from "../types/lead.schema";
-import { useClients, useClientSource, type ClientSourceKind as SourceKind } from "../hooks/use-sources";
+import { useClients, useClientSource, useReferralAccounts, useWebsites, type ClientSourceKind as SourceKind } from "../hooks/use-sources";
 import { createLead } from "../providers/lead-provider";
-import { CreateLeadDialog, warnProvenanceOnce, type LeadPrefill } from "./create-lead-dialog";
-import { StatusPill } from "./status-pill";
+import { CreateLeadDialog, ProductCombobox, warnProvenanceOnce, type LeadPrefill } from "./create-lead-dialog";
+import { StatusPill, type Tone } from "./status-pill";
 
 const PAGE_SIZES = [10, 25, 50];
 
 function toPrefill(row: SourceRow, dealerId: number): LeadPrefill {
+    if (row.source === "referral_accounts") {
+        // Website registrants carry no party linkage — the person name goes
+        // to the contact, the company (or the person name when no company
+        // was given) to the company, position display-only. The account's
+        // enquiry (need, address, industry, product code) rides along; empty
+        // columns stay null, never invented. The tab id never becomes the
+        // lead source: referred accounts convert as `referral`, direct
+        // signups as `portal`.
+        return {
+            company_name: row.name,
+            contact_name: row.contactName,
+            mobile: row.contact,
+            email: row.email,
+            address: row.enquiryAddress ?? null,
+            industry: row.enquiryIndustry ?? null,
+            product_code: row.productCode ?? null,
+            need: row.needText ?? null,
+            position: row.position ?? null,
+            source: leadSourceForRow(row),
+            party_kind: "none",
+            party_id: null,
+            dealer_id: dealerId,
+            referrer_id: row.referrer_id ?? (Number.isInteger(row.id) && row.id > 0 ? row.id : null),
+            website_id: row.websiteId ?? null,
+            website_name: row.websiteName ?? null,
+        };
+    }
     return {
         company_name: row.name,
         mobile: row.contact,
@@ -72,8 +101,72 @@ function locationOf(row: SourceRow): string {
     return [row.city, row.province].filter(Boolean).join(", ") || "—";
 }
 
+/** Raw `created_at` ("YYYY-MM-DD HH:mm:ss" or ISO) → "Oct 29, 2026"; never throws. */
+function formatRegisteredDate(raw: string | null | undefined): string {
+    if (!raw) return "—";
+    const parsed = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Account status → pill tone. Destructive checked before success so "inactive" never reads as active. */
+function accountTone(status: string | null | undefined): Tone {
+    const s = (status ?? "").toLowerCase();
+    if (!s) return "neutral";
+    if (
+        s.includes("suspend") ||
+        s.includes("ban") ||
+        s.includes("deactiv") ||
+        s.includes("inactive") ||
+        s.includes("reject") ||
+        s.includes("block") ||
+        s.includes("disable")
+    )
+        return "destructive";
+    if (s.includes("pend") || s.includes("review") || s.includes("unverif")) return "warning";
+    if (s.includes("activ") || s.includes("verif") || s.includes("approv")) return "success";
+    return "neutral";
+}
+
+/** Tooltip for the enquiry line — full need plus consent date when known. */
+function enquiryTitle(row: SourceRow): string {
+    const bits: string[] = [];
+    if (row.productCode) bits.push(`Product: ${row.productCode}`);
+    if (row.needText) bits.push(row.needText);
+    if (row.consentAcceptedAt) bits.push(`Consent ${formatRegisteredDate(row.consentAcceptedAt)}`);
+    return bits.join(" · ") || "No enquiry";
+}
+
+/** Product + truncated need under a referral row's name — the agent's convert/don't signal. */
+function EnquiryLine({ row, className }: { row: SourceRow; className?: string }) {
+    if (!row.productCode && !row.needText) return null;
+    return (
+        <span
+            className={className ?? "mt-1 block max-w-44 truncate text-xs text-muted-foreground"}
+            title={enquiryTitle(row)}
+        >
+            {row.productCode ? (
+                <span className="font-mono">{row.productCode}</span>
+            ) : null}
+            {row.productCode && row.needText ? <span aria-hidden> · </span> : null}
+            {row.needText ? <span>{row.needText}</span> : null}
+        </span>
+    );
+}
+
 function rowKey(row: SourceRow): string {
     return `${row.source}-${row.id}`;
+}
+
+/** A referral row whose website signup already produced a lead — never convertible again. */
+function hasLead(row: SourceRow): boolean {
+    return typeof row.leadId === "number" && row.leadId > 0;
+}
+
+/** Pipeline lead-detail route for a converted referral row; null when leadless. */
+function leadHrefFor(row: SourceRow): string | null {
+    if (!hasLead(row)) return null;
+    return `/customer-activation/telemarketing/telemarketing-pipeline/leads/${row.leadId}`;
 }
 
 /**
@@ -127,7 +220,13 @@ function ClientCombobox({
         : "Select client…";
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                setOpen(next);
+                if (!next) setQuery("");
+            }}
+        >
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
@@ -135,7 +234,7 @@ function ClientCombobox({
                     aria-expanded={open}
                     aria-label="Select client database"
                     disabled={isLoading}
-                    className="w-full justify-between font-normal sm:max-w-xs"
+                    className="w-full justify-between font-normal sm:w-64"
                 >
                     <span className="min-w-0 flex-1 truncate text-left" title={label}>
                         {isLoading ? "Loading clients…" : label}
@@ -144,7 +243,7 @@ function ClientCombobox({
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command shouldFilter={false}>
+                <Command shouldFilter={false} label="Search clients">
                     <CommandInput
                         placeholder="Search clients…"
                         value={query}
@@ -238,8 +337,10 @@ function SourceTable({
     isLoading,
     dealerId,
     onCreate,
+    onOpenLead,
+    variant = "standard",
 }: {
-    kind: SourceKind;
+    kind: string;
     rows: SourceRow[];
     total: number;
     page: number;
@@ -249,12 +350,19 @@ function SourceTable({
     isLoading: boolean;
     dealerId: number;
     onCreate: (row: SourceRow) => void;
+    /** Navigate to the signup-created lead in the pipeline. Referral tab only. */
+    onOpenLead: (row: SourceRow) => void;
+    /** `referral` swaps the location column for company, registered date, and account status. */
+    variant?: "standard" | "referral";
 }) {
     const [selected, setSelected] = useState<Map<string, SourceRow>>(new Map());
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkDone, setBulkDone] = useState(0);
     const [bulkTotal, setBulkTotal] = useState(0);
     const [lastSummary, setLastSummary] = useState<string | null>(null);
+    const [bulkProductId, setBulkProductId] = useState<number | null>(null);
+    const [bulkProductError, setBulkProductError] = useState<string | null>(null);
+    const isReferral = variant === "referral";
 
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(Math.max(1, page), pageCount);
@@ -264,17 +372,74 @@ function SourceTable({
     const selectedCount = selected.size;
     const allSelected = rows.length > 0 && rows.every((row) => selected.has(rowKey(row)));
     const someSelected = rows.some((row) => selected.has(rowKey(row)));
+    const bulkNeedsProduct = bulkProductId === null;
+    const bulkHintId = `bulk-product-${kind}-hint`;
+    // Referral conversion must not mix brands: the distinct owning websites
+    // across the selection. Null (unassigned) is its own bucket — mixing it
+    // with a branded account is still mixing.
+    const selectedRows = [...selected.values()];
+    // Converted accounts must never re-enter the create path — bulk create
+    // only ever targets leadless rows. A mixed selection disables the button
+    // until the already-converted rows are deselected.
+    const leadlessSelected = selectedRows.filter((row) => !hasLead(row));
+    const withLeadCount = selectedRows.length - leadlessSelected.length;
+    const onlyLeads = selectedRows.length > 0 && leadlessSelected.length === 0;
+    const selectedSiteKeys = new Set(selectedRows.map((row) => row.websiteId ?? 0));
+    const mixedWebsites = isReferral && selectedSiteKeys.size > 1;
+    const singleWebsiteId =
+        isReferral && !mixedWebsites && selectedRows.length > 0
+            ? (selectedRows[0].websiteId ?? null)
+            : null;
+    // Shared enquiry product across the convertible selection — preselects
+    // the bulk product picker. Differing (or absent) codes leave it for the
+    // agent to choose.
+    const leadlessCodes = leadlessSelected
+        .map((row) => row.productCode?.trim() ?? "")
+        .filter(Boolean);
+    const sharedProductCode =
+        isReferral &&
+        leadlessSelected.length > 0 &&
+        leadlessCodes.length === leadlessSelected.length &&
+        new Set(leadlessCodes.map((c) => c.toLowerCase())).size === 1
+            ? leadlessCodes[0]
+            : null;
+    const scopeKey = isReferral
+        ? (mixedWebsites ? "mixed" : `site:${singleWebsiteId ?? "none"}|code:${sharedProductCode?.toLowerCase() ?? "none"}`)
+        : "na";
+    const [lastScopeKey, setLastScopeKey] = useState(scopeKey);
+    // A scope change invalidates the picked product (it may belong to the
+    // wrong brand), so the next selection starts disabled with the reason
+    // visible. Same-brand additions keep the pick.
+    if (scopeKey !== lastScopeKey) {
+        setLastScopeKey(scopeKey);
+        setBulkProductId(null);
+        setBulkProductError(null);
+    }
+    // Clearing the last row resets the product choice too, so the next
+    // selection starts disabled with the reason visible.
+    function clearSelection() {
+        setSelected(new Map());
+        setBulkProductId(null);
+        setBulkProductError(null);
+    }
 
     function toggleOne(key: string, row: SourceRow, checked: boolean) {
-        setSelected((prev) => {
-            const next = new Map(prev);
-            if (checked) next.set(key, row);
-            else next.delete(key);
-            return next;
-        });
+        if (!checked && selected.size === 1 && selected.has(key)) clearSelection();
+        else {
+            setSelected((prev) => {
+                const next = new Map(prev);
+                if (checked) next.set(key, row);
+                else next.delete(key);
+                return next;
+            });
+        }
     }
 
     function toggleAll(checked: boolean) {
+        if (!checked) {
+            clearSelection();
+            return;
+        }
         setSelected((prev) => {
             const next = new Map(prev);
             for (const row of rows) {
@@ -288,8 +453,21 @@ function SourceTable({
     // Sequential so one duplicate never aborts the rest; the summary — not
     // the first failure — is the outcome.
     async function runBulk() {
-        const targets = [...selected.values()];
+        // Defense in depth: the button is disabled for converted rows, but a
+        // stale selection could still carry them — convert leadless rows only.
+        const targets = [...selected.values()].filter((row) => !hasLead(row));
         if (targets.length === 0 || bulkRunning) return;
+        // Never convert accounts of different websites together — one bulk
+        // product cannot belong to two brands at once.
+        if (isReferral && new Set(targets.map((row) => row.websiteId ?? 0)).size > 1) return;
+        // A lead requires a product and the bulk path used to send none —
+        // every row landed in the null-product bucket (or failed a stricter
+        // validation). Block here until the agent picks one.
+        if (bulkProductId === null) {
+            setBulkProductError("Select a product — every lead needs one.");
+            return;
+        }
+        setBulkProductError(null);
         setBulkRunning(true);
         setBulkDone(0);
         setBulkTotal(targets.length);
@@ -299,15 +477,23 @@ function SourceTable({
         let failed = 0;
         for (const row of targets) {
             const parsed = LeadCreateSchema.safeParse({
-                source: row.source,
+                source: leadSourceForRow(row),
                 party_kind: row.party_kind,
                 party_id: row.party_id,
                 company_name: row.name,
-                contact_name: null,
+                contact_name: isReferral ? (row.contactName ?? null) : null,
                 mobile: row.contact,
                 email: row.email,
-                address: [row.city, row.province].filter(Boolean).join(", ") || null,
+                address: isReferral
+                    ? (row.enquiryAddress ?? null)
+                    : [row.city, row.province].filter(Boolean).join(", ") || null,
+                industry: isReferral ? (row.enquiryIndustry ?? null) : null,
+                need: isReferral ? (row.needText ?? null) : null,
+                product_id: bulkProductId,
                 dealer_id: dealerId,
+                ...(isReferral
+                    ? { referrer_id: row.referrer_id ?? (Number.isInteger(row.id) && row.id > 0 ? row.id : null) }
+                    : {}),
             });
             if (!parsed.success) {
                 failed += 1;
@@ -330,7 +516,7 @@ function SourceTable({
         setLastSummary(summary);
         if (failed > 0) toast.error("Bulk create finished with failures", { description: summary });
         else toast.success("Bulk create finished", { description: summary });
-        setSelected(new Map());
+        clearSelection();
     }
 
     return (
@@ -344,27 +530,104 @@ function SourceTable({
                         {selectedCount} selected
                         {bulkRunning ? ` · creating ${bulkDone} of ${bulkTotal}…` : ""}
                     </p>
-                    <div className="flex items-center gap-2">
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelected(new Map())}
-                            disabled={bulkRunning}
-                        >
-                            Clear
-                        </Button>
-                        <Button
-                            size="sm"
-                            onClick={() => void runBulk()}
-                            disabled={bulkRunning}
-                            aria-label={`Create leads for ${selectedCount} selected row${selectedCount === 1 ? "" : "s"}`}
-                        >
-                            {bulkRunning
-                                ? `Creating ${bulkDone} of ${bulkTotal}…`
-                                : `Create ${selectedCount} lead${selectedCount === 1 ? "" : "s"}`}
-                        </Button>
-                    </div>
+                    {onlyLeads ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm text-muted-foreground">
+                                Selected accounts already have leads — open them instead.
+                            </p>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={clearSelection}
+                                disabled={bulkRunning}
+                            >
+                                Clear
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-end gap-2">
+                            <div className="grid min-w-44 gap-1">
+                                <label
+                                    htmlFor={`bulk-product-${kind}`}
+                                    className="text-xs text-muted-foreground"
+                                >
+                                    Product (required)
+                                </label>
+                                <ProductCombobox
+                                    controlId={`bulk-product-${kind}`}
+                                    value={bulkProductId}
+                                    onChange={(id) => {
+                                        setBulkProductId(id);
+                                        setBulkProductError(null);
+                                    }}
+                                    disabled={bulkRunning || mixedWebsites}
+                                    invalid={Boolean(bulkProductError)}
+                                    describedBy={bulkNeedsProduct ? bulkHintId : undefined}
+                                    websiteId={isReferral ? singleWebsiteId : null}
+                                    preselectCode={isReferral ? sharedProductCode : null}
+                                />
+                                {bulkNeedsProduct ? (
+                                    <p
+                                        id={bulkHintId}
+                                        role={bulkProductError ? "alert" : undefined}
+                                        className={
+                                            bulkProductError
+                                                ? "text-xs text-destructive"
+                                                : "text-xs text-muted-foreground"
+                                        }
+                                    >
+                                        {bulkProductError ?? "Select a product — every lead needs one."}
+                                    </p>
+                                ) : null}
+                            </div>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={clearSelection}
+                                disabled={bulkRunning}
+                            >
+                                Clear
+                            </Button>
+                            <Button
+                                size="sm"
+                                onClick={() => void runBulk()}
+                                disabled={
+                                    bulkRunning ||
+                                    bulkNeedsProduct ||
+                                    mixedWebsites ||
+                                    withLeadCount > 0
+                                }
+                                aria-label={`Create leads for ${leadlessSelected.length} selected row${leadlessSelected.length === 1 ? "" : "s"}`}
+                                aria-describedby={bulkNeedsProduct ? bulkHintId : undefined}
+                                title={
+                                    withLeadCount > 0
+                                        ? "Deselect the accounts that already have a lead to enable bulk create"
+                                        : mixedWebsites
+                                          ? "Select accounts from one website to convert together"
+                                          : bulkNeedsProduct
+                                            ? "Select a product to enable bulk create"
+                                            : undefined
+                                }
+                            >
+                                {bulkRunning
+                                    ? `Creating ${bulkDone} of ${bulkTotal}…`
+                                    : `Create ${leadlessSelected.length} lead${leadlessSelected.length === 1 ? "" : "s"}`}
+                            </Button>
+                        </div>
+                    )}
                 </div>
+            ) : null}
+            {withLeadCount > 0 && !onlyLeads ? (
+                <p className="text-sm text-destructive" role="alert">
+                    {withLeadCount} selected already {withLeadCount === 1 ? "has" : "have"} a
+                    lead — deselect {withLeadCount === 1 ? "it" : "them"} to enable bulk
+                    create.
+                </p>
+            ) : null}
+            {mixedWebsites ? (
+                <p className="text-sm text-destructive" role="alert">
+                    Select accounts from one website to convert together
+                </p>
             ) : null}
             {lastSummary ? (
                 <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -377,17 +640,33 @@ function SourceTable({
                 {rows.map((row) => {
                     const key = rowKey(row);
                     const checked = selected.has(key);
+                    const converted = hasLead(row);
+                    const href = leadHrefFor(row);
                     return (
                         <li
                             key={key}
                             className="relative grid gap-1 rounded-md border p-3 hover:bg-muted/50"
                         >
-                            <button
-                                type="button"
-                                aria-label={`Create lead for ${row.name}`}
-                                onClick={() => onCreate(row)}
-                                className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                            />
+                            {converted && href ? (
+                                <a
+                                    aria-hidden
+                                    tabIndex={-1}
+                                    href={href}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        onOpenLead(row);
+                                    }}
+                                    className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                />
+                            ) : (
+                                <button
+                                    type="button"
+                                    aria-hidden
+                                    tabIndex={-1}
+                                    onClick={() => onCreate(row)}
+                                    className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                />
+                            )}
                             <div className="flex items-start gap-2">
                                 <Checkbox
                                     checked={checked}
@@ -407,31 +686,94 @@ function SourceTable({
                                             {row.code}
                                         </p>
                                     ) : null}
+                                    {converted ? (
+                                        <p className="mt-1">
+                                            <StatusPill tone="success">
+                                                Has lead{row.leadCode ? ` · ${row.leadCode}` : ""}
+                                            </StatusPill>
+                                        </p>
+                                    ) : null}
                                 </div>
                             </div>
+                            {isReferral && row.contactName && row.contactName !== row.name ? (
+                                <p className="truncate text-sm" title={row.contactName}>
+                                    {row.contactName}
+                                    {row.position ? (
+                                        <span className="text-muted-foreground">
+                                            {" "}
+                                            · {row.position}
+                                        </span>
+                                    ) : null}
+                                </p>
+                            ) : null}
                             <p
                                 className="truncate text-sm text-muted-foreground"
                                 title={row.contact ?? row.email ?? "—"}
                             >
                                 {row.contact ?? row.email ?? "—"}
                             </p>
-                            <p
-                                className="truncate text-xs text-muted-foreground"
-                                title={locationOf(row)}
-                            >
-                                {locationOf(row)}
-                            </p>
-                            <div className="relative z-10 mt-1 flex justify-end">
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="min-h-11"
-                                    aria-label={`Create lead for ${row.name}`}
-                                    onClick={() => onCreate(row)}
+                            {isReferral && (row.productCode || row.needText) ? (
+                                <p
+                                    className="truncate text-sm text-muted-foreground"
+                                    title={enquiryTitle(row)}
                                 >
-                                    <Plus className="size-4" aria-hidden />
-                                    Create lead
-                                </Button>
+                                    {row.productCode ? (
+                                        <span className="font-mono">{row.productCode}</span>
+                                    ) : null}
+                                    {row.productCode && row.needText ? <span aria-hidden> · </span> : null}
+                                    {row.needText ? <span>{row.needText}</span> : null}
+                                </p>
+                            ) : null}
+                            {isReferral ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {row.websiteName ? (
+                                        <StatusPill tone="neutral">{row.websiteName}</StatusPill>
+                                    ) : (
+                                        <span className="text-xs text-muted-foreground">—</span>
+                                    )}
+                                    <StatusPill tone={accountTone(row.accountStatus)}>
+                                        {row.accountStatus ?? "Unknown"}
+                                    </StatusPill>
+                                    <span className="text-xs text-muted-foreground">
+                                        Registered {formatRegisteredDate(row.registeredAt)}
+                                    </span>
+                                </div>
+                            ) : (
+                                <p
+                                    className="truncate text-xs text-muted-foreground"
+                                    title={locationOf(row)}
+                                >
+                                    {locationOf(row)}
+                                </p>
+                            )}
+                            <div className="relative z-10 mt-1 flex justify-end">
+                                {converted && href ? (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="min-h-11"
+                                        asChild
+                                    >
+                                        <a
+                                            href={href}
+                                            aria-label={`Open lead ${row.leadCode ?? row.leadId} for ${row.name}`}
+                                        >
+                                            <ArrowUpRight className="size-4" aria-hidden />
+                                            Open lead
+                                        </a>
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="min-h-11"
+                                        aria-label={`Create lead for ${row.name}`}
+                                        onClick={() => onCreate(row)}
+                                    >
+                                        <Plus className="size-4" aria-hidden />
+                                        Create lead
+                                    </Button>
+                                )}
                             </div>
                         </li>
                     );
@@ -439,7 +781,7 @@ function SourceTable({
             </ul>
 
             <div className="hidden overflow-x-auto rounded-md border sm:block">
-                    <table className="w-full caption-bottom text-sm min-w-[760px]">
+                    <table className={isReferral ? "w-full caption-bottom text-sm min-w-[960px]" : "w-full caption-bottom text-sm min-w-[760px]"}>
                         <TableHeader className="bg-muted">
                             <TableRow>
                                 <TableHead className="w-10">
@@ -449,11 +791,26 @@ function SourceTable({
                                         aria-label="Select all rows on this page"
                                     />
                                 </TableHead>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Code</TableHead>
-                                <TableHead>Contact</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Location</TableHead>
+                                {isReferral ? (
+                                    <>
+                                        <TableHead>Code</TableHead>
+                                        <TableHead>Name</TableHead>
+                                        <TableHead>Company</TableHead>
+                                        <TableHead>Website</TableHead>
+                                        <TableHead>Mobile</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Registered</TableHead>
+                                        <TableHead>Status</TableHead>
+                                    </>
+                                ) : (
+                                    <>
+                                        <TableHead>Name</TableHead>
+                                        <TableHead>Code</TableHead>
+                                        <TableHead>Contact</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Location</TableHead>
+                                    </>
+                                )}
                                 <TableHead className="text-right">Action</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -461,23 +818,33 @@ function SourceTable({
                             {rows.map((row) => {
                                 const key = rowKey(row);
                                 const checked = selected.has(key);
+                                const converted = hasLead(row);
+                                const href = leadHrefFor(row);
+                                const openRow = () => {
+                                    if (converted) onOpenLead(row);
+                                    else onCreate(row);
+                                };
                                 return (
                                     <TableRow
                                         key={key}
                                         data-state={checked ? "selected" : undefined}
                                         onClick={(e) => {
                                             if (isInteractiveOrigin(e.target)) return;
-                                            onCreate(row);
+                                            openRow();
                                         }}
                                         onKeyDown={(e) => {
                                             if (e.key !== "Enter" && e.key !== " ") return;
                                             if (isInteractiveOrigin(e.target)) return;
                                             e.preventDefault();
-                                            onCreate(row);
+                                            openRow();
                                         }}
                                         tabIndex={0}
                                         role="button"
-                                        aria-label={`Create lead for ${row.name}`}
+                                        aria-label={
+                                            converted
+                                                ? `Open lead ${row.leadCode ?? row.leadId} for ${row.name}`
+                                                : `Open create-lead form for ${row.name}`
+                                        }
                                         className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                                     >
                                         <TableCell>
@@ -487,56 +854,151 @@ function SourceTable({
                                                 aria-label={`Select ${row.name}`}
                                             />
                                         </TableCell>
-                                        <TableCell>
-                                            <span
-                                                className="block max-w-44 truncate font-medium"
-                                                title={row.name}
-                                            >
-                                                {row.name}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span
-                                                className="block max-w-32 truncate font-mono text-muted-foreground"
-                                                title={row.code ?? "—"}
-                                            >
-                                                {row.code ?? "—"}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span
-                                                className="block max-w-36 truncate text-muted-foreground"
-                                                title={row.contact ?? "—"}
-                                            >
-                                                {row.contact ?? "—"}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span
-                                                className="block max-w-44 truncate text-muted-foreground"
-                                                title={row.email ?? "—"}
-                                            >
-                                                {row.email ?? "—"}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span
-                                                className="block max-w-36 truncate text-muted-foreground"
-                                                title={locationOf(row)}
-                                            >
-                                                {locationOf(row)}
-                                            </span>
-                                        </TableCell>
+                                        {isReferral ? (
+                                            <>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-36 truncate font-mono text-muted-foreground"
+                                                        title={row.code ?? "—"}
+                                                    >
+                                                        {row.code ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-44 truncate font-medium"
+                                                        title={row.contactName ?? row.name}
+                                                    >
+                                                        {row.contactName ?? row.name}
+                                                    </span>
+                                                    {converted ? (
+                                                        <span className="mt-1 block">
+                                                            <StatusPill tone="success">
+                                                                Has lead
+                                                                {row.leadCode ? ` · ${row.leadCode}` : ""}
+                                                            </StatusPill>
+                                                        </span>
+                                                    ) : null}
+                                                    <EnquiryLine row={row} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-44 truncate text-muted-foreground"
+                                                        title={row.company ?? "—"}
+                                                    >
+                                                        {row.company ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {row.websiteName ? (
+                                                        <StatusPill tone="neutral">
+                                                            <span
+                                                                className="block max-w-32 truncate"
+                                                                title={row.websiteName}
+                                                            >
+                                                                {row.websiteName}
+                                                            </span>
+                                                        </StatusPill>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-36 truncate text-muted-foreground"
+                                                        title={row.contact ?? "—"}
+                                                    >
+                                                        {row.contact ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-44 truncate text-muted-foreground"
+                                                        title={row.email ?? "—"}
+                                                    >
+                                                        {row.email ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-32 truncate text-muted-foreground"
+                                                        title={formatRegisteredDate(row.registeredAt)}
+                                                    >
+                                                        {formatRegisteredDate(row.registeredAt)}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <StatusPill tone={accountTone(row.accountStatus)}>
+                                                        {row.accountStatus ?? "Unknown"}
+                                                    </StatusPill>
+                                                </TableCell>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-44 truncate font-medium"
+                                                        title={row.name}
+                                                    >
+                                                        {row.name}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-56 truncate font-mono text-muted-foreground"
+                                                        title={row.code ?? "—"}
+                                                    >
+                                                        {row.code ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-36 truncate text-muted-foreground"
+                                                        title={row.contact ?? "—"}
+                                                    >
+                                                        {row.contact ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-44 truncate text-muted-foreground"
+                                                        title={row.email ?? "—"}
+                                                    >
+                                                        {row.email ?? "—"}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span
+                                                        className="block max-w-36 truncate text-muted-foreground"
+                                                        title={locationOf(row)}
+                                                    >
+                                                        {locationOf(row)}
+                                                    </span>
+                                                </TableCell>
+                                            </>
+                                        )}
                                         <TableCell className="text-right">
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                aria-label={`Create lead for ${row.name}`}
-                                                onClick={() => onCreate(row)}
-                                            >
-                                                <Plus className="size-4" aria-hidden />
-                                                Create lead
-                                            </Button>
+                                            {converted && href ? (
+                                                <Button size="sm" variant="ghost" asChild>
+                                                    <a
+                                                        href={href}
+                                                        aria-label={`Open lead ${row.leadCode ?? row.leadId} for ${row.name}`}
+                                                    >
+                                                        <ArrowUpRight className="size-4" aria-hidden />
+                                                        Open lead
+                                                    </a>
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    aria-label={`Create lead for ${row.name}`}
+                                                    onClick={() => onCreate(row)}
+                                                >
+                                                    <Plus className="size-4" aria-hidden />
+                                                    Create lead
+                                                </Button>
+                                            )}
                                         </TableCell>
                                     </TableRow>
                                 );
@@ -652,20 +1114,26 @@ function SourcePanel({
     kind,
     dealerId,
     search,
+    contact,
+    isFiltered,
     page,
     pageSize,
     onPageChange,
     onPageSizeChange,
     onCreate,
+    onOpenLead,
 }: {
     kind: SourceKind;
     dealerId: number;
     search: string;
+    contact: "with" | "missing" | "all";
+    isFiltered: boolean;
     page: number;
     pageSize: number;
     onPageChange: (page: number) => void;
     onPageSizeChange: (size: number) => void;
     onCreate: (row: SourceRow) => void;
+    onOpenLead: (row: SourceRow) => void;
 }) {
     const { result, isLoading, error, refresh } = useClientSource(
         kind,
@@ -673,6 +1141,7 @@ function SourcePanel({
         search,
         page,
         pageSize,
+        contact,
     );
     const nouns = kind === "customer" ? "customers" : "prospects";
     const emptyTitle =
@@ -694,7 +1163,7 @@ function SourcePanel({
         if (result.rows.length === 0 && result.total > 0) return <PanelSkeleton rows={pageSize} />;
         return (
             <SourceTable
-                key={`${kind}-${dealerId}-${search}-${pageSize}`}
+                key={`${kind}-${dealerId}-${search}-${pageSize}-${contact}`}
                 kind={kind}
                 rows={result.rows}
                 total={result.total}
@@ -705,6 +1174,7 @@ function SourcePanel({
                 isLoading={isLoading}
                 dealerId={dealerId}
                 onCreate={onCreate}
+                onOpenLead={onOpenLead}
             />
         );
     }
@@ -717,8 +1187,9 @@ function SourcePanel({
                     </EmptyMedia>
                     <EmptyTitle>{emptyTitle}</EmptyTitle>
                     <EmptyDescription>
-                        This database is connected — it just holds no {nouns} for this
-                        search yet.
+                        {isFiltered
+                            ? `No ${nouns} match these filters — try a different search or clear the filters.`
+                            : `This database is connected — it just holds no ${nouns} yet.`}
                     </EmptyDescription>
                 </EmptyHeader>
             </Empty>
@@ -763,14 +1234,136 @@ function SourcePanel({
     return <PanelSkeleton rows={pageSize} />;
 }
 
+/**
+ * Global website-registrant tab. Same discriminated-result branching as
+ * `SourcePanel`, but the query is narrowed by `account_status` (not contact
+ * completeness) and needs no client database. Distinct statuses report
+ * upward so the toolbar filter only ever offers values the API returned.
+ */
+function ReferralPanel({
+    dealerId,
+    search,
+    status,
+    websiteId,
+    isFiltered,
+    page,
+    pageSize,
+    onPageChange,
+    onPageSizeChange,
+    onCreate,
+    onOpenLead,
+    onStatuses,
+}: {
+    dealerId: number;
+    search: string;
+    status: string;
+    websiteId: number | null;
+    isFiltered: boolean;
+    page: number;
+    pageSize: number;
+    onPageChange: (page: number) => void;
+    onPageSizeChange: (size: number) => void;
+    onCreate: (row: SourceRow) => void;
+    onOpenLead: (row: SourceRow) => void;
+    onStatuses: (statuses: string[]) => void;
+}) {
+    const { result, isLoading, error, refresh } = useReferralAccounts(
+        search,
+        status,
+        page,
+        pageSize,
+        websiteId,
+    );
+
+    const total = result?.status === "ok" ? result.total : 0;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    useEffect(() => {
+        if (page > pageCount) onPageChange(pageCount);
+    }, [page, pageCount, onPageChange]);
+
+    useEffect(() => {
+        if (result?.status !== "ok") return;
+        const distinct = Array.from(
+            new Set(
+                result.rows
+                    .map((row) => row.accountStatus)
+                    .filter((s): s is string => Boolean(s)),
+            ),
+        ).sort((a, b) => a.localeCompare(b));
+        onStatuses(distinct);
+    }, [result, onStatuses]);
+
+    if (result?.status === "ok") {
+        if (result.rows.length === 0 && result.total > 0) return <PanelSkeleton rows={pageSize} />;
+        return (
+            <SourceTable
+                key={`referrals-${dealerId}-${search}-${status}-${websiteId ?? "all"}-${pageSize}`}
+                kind="referrals"
+                variant="referral"
+                rows={result.rows}
+                total={result.total}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={onPageChange}
+                onPageSizeChange={onPageSizeChange}
+                isLoading={isLoading}
+                dealerId={dealerId}
+                onCreate={onCreate}
+                onOpenLead={onOpenLead}
+            />
+        );
+    }
+    if (result?.status === "empty") {
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <Users className="size-5" />
+                    </EmptyMedia>
+                    <EmptyTitle>No referral accounts yet</EmptyTitle>
+                    <EmptyDescription>
+                        {isFiltered
+                            ? "No referral accounts match these filters — try a different search or clear the filters."
+                            : "No website registrants have signed up yet — new accounts appear here automatically."}
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        );
+    }
+    if (result?.status === "unavailable") {
+        return (
+            <UnavailablePanel title="Referral accounts could not be reached" detail={result.detail} />
+        );
+    }
+    if (error) {
+        return (
+            <Alert variant="destructive" className="flex items-center justify-between gap-3">
+                <AlertDescription>{error}</AlertDescription>
+                <Button size="sm" variant="outline" onClick={() => void refresh()}>
+                    Retry
+                </Button>
+            </Alert>
+        );
+    }
+    return <PanelSkeleton rows={pageSize} />;
+}
+
 export function LeadGenerationTabs() {
     const router = useRouter();
     const pathname = usePathname();
     const [search, setSearch] = useState("");
     const [debouncedSearch] = useDebounce(search, 300);
+    const [contactFilter, setContactFilter] = useState<"all" | "with" | "missing">("all");
+    const [refreshNonce, setRefreshNonce] = useState(0);
     const [pageSize, setPageSize] = useState<number>(SOURCE_PAGE_SIZE);
     const [customerPage, setCustomerPage] = useState(1);
     const [prospectingPage, setProspectingPage] = useState(1);
+    const [referralsPage, setReferralsPage] = useState(1);
+    const [referralStatus, setReferralStatus] = useState("all");
+    const [referralWebsite, setReferralWebsite] = useState("all");
+    // Account statuses the API has actually returned — the toolbar filter
+    // only offers these, never invented values.
+    const [knownStatuses, setKnownStatuses] = useState<string[]>([]);
     // Read once on mount so a reload keeps the picked database.
     const [dealerId, setDealerId] = useState<number | null>(() => {
         if (typeof window === "undefined") return null;
@@ -779,9 +1372,28 @@ export function LeadGenerationTabs() {
     });
     const [prefill, setPrefill] = useState<LeadPrefill | null>(null);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [tab, setTab] = useState<SourceKind | "referrals">("customer");
+    const hasFilter =
+        search.trim() !== "" ||
+        (tab === "referrals"
+            ? referralStatus !== "all" || referralWebsite !== "all"
+            : contactFilter !== "all");
+
+    const reportReferralStatuses = useCallback((statuses: string[]) => {
+        setKnownStatuses((prev) => {
+            const next = [...prev];
+            for (const s of statuses) if (!next.includes(s)) next.push(s);
+            return next.length === prev.length ? prev : next;
+        });
+    }, []);
 
     const { clients, isLoading: clientsLoading, error: clientsError, refresh: refreshClients } =
         useClients();
+
+    // Referral websites catalogue — the website filter offers every active
+    // site (All websites first, then each by name), not just the brands on
+    // the current page.
+    const { websites } = useWebsites();
 
     const writeClientParam = useCallback(
         (id: number | null) => {
@@ -809,6 +1421,7 @@ export function LeadGenerationTabs() {
         setDealerId(resolved);
         setCustomerPage(1);
         setProspectingPage(1);
+        setReferralsPage(1);
     }
 
     // Keep `?client=` reflecting the resolved selection. External sync only
@@ -822,19 +1435,38 @@ export function LeadGenerationTabs() {
         writeClientParam(resolved);
     }, [resolved, writeClientParam]);
 
-    // A new settled search starts both tabs back on the first page (render-time
-    // adjustment, not an effect — the sanctioned reset-on-key-change shape).
+    // A new settled search or contact filter starts both tabs back on the
+    // first page (render-time adjustment, not an effect — the sanctioned
+    // reset-on-key-change shape).
     const [lastSearch, setLastSearch] = useState(debouncedSearch);
     if (debouncedSearch !== lastSearch) {
         setLastSearch(debouncedSearch);
         setCustomerPage(1);
         setProspectingPage(1);
+        setReferralsPage(1);
+    }
+    const [lastContact, setLastContact] = useState(contactFilter);
+    if (contactFilter !== lastContact) {
+        setLastContact(contactFilter);
+        setCustomerPage(1);
+        setProspectingPage(1);
+    }
+    const [lastReferralStatus, setLastReferralStatus] = useState(referralStatus);
+    if (referralStatus !== lastReferralStatus) {
+        setLastReferralStatus(referralStatus);
+        setReferralsPage(1);
+    }
+    const [lastReferralWebsite, setLastReferralWebsite] = useState(referralWebsite);
+    if (referralWebsite !== lastReferralWebsite) {
+        setLastReferralWebsite(referralWebsite);
+        setReferralsPage(1);
     }
 
     function pickClient(id: number) {
         setDealerId(id);
         setCustomerPage(1);
         setProspectingPage(1);
+        setReferralsPage(1);
         writeClientParam(id);
     }
 
@@ -842,9 +1474,37 @@ export function LeadGenerationTabs() {
         setPageSize(size);
         setCustomerPage(1);
         setProspectingPage(1);
+        setReferralsPage(1);
+    }
+
+    function resetFilters() {
+        setSearch("");
+        setContactFilter("all");
+        setReferralStatus("all");
+        setReferralWebsite("all");
+        setCustomerPage(1);
+        setProspectingPage(1);
+        setReferralsPage(1);
+    }
+
+    // Refresh remounts the visible panel (its hook refetches on mount) and
+    // reloads the client registry. Selection resets — same as the reference.
+    function refreshAll() {
+        setRefreshNonce((n) => n + 1);
+        void refreshClients();
+    }
+
+    function openLead(row: SourceRow) {
+        if (typeof row.leadId !== "number" || row.leadId <= 0) return;
+        router.push(`/customer-activation/telemarketing/telemarketing-pipeline/leads/${row.leadId}`);
     }
 
     function openFor(row: SourceRow) {
+        // Converted accounts never open the create dialog — route to the lead.
+        if (typeof row.leadId === "number" && row.leadId > 0) {
+            openLead(row);
+            return;
+        }
         if (dealerId === null) return;
         setPrefill(toPrefill(row, dealerId));
         setDialogOpen(true);
@@ -858,27 +1518,6 @@ export function LeadGenerationTabs() {
 
     return (
         <div className="grid gap-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative w-full sm:max-w-xs">
-                    <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search name, code, contact…"
-                        aria-label="Search sources"
-                        className="pl-8"
-                    />
-                </div>
-                <ClientCombobox
-                    clients={clients}
-                    value={resolved ?? null}
-                    onChange={pickClient}
-                    isLoading={clientsLoading}
-                    error={clientsError}
-                    onRetry={() => void refreshClients()}
-                />
-            </div>
-
             {clientsLoading ? (
                 <PanelSkeleton rows={pageSize} />
             ) : clientsError && clients.length === 0 ? (
@@ -902,46 +1541,188 @@ export function LeadGenerationTabs() {
                     </EmptyHeader>
                 </Empty>
             ) : (
-                <Tabs defaultValue="customer">
-                    <TabsList>
-                        <TabsTrigger value="customer" className="min-h-11 md:min-h-0">
-                            Customer
-                        </TabsTrigger>
-                        <TabsTrigger value="prospecting" className="min-h-11 md:min-h-0">
-                            Prospecting
-                        </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="customer" className="grid gap-2">
-                        <SourcePanel
-                            kind="customer"
-                            dealerId={resolved}
-                            search={debouncedSearch}
-                            page={customerPage}
-                            pageSize={pageSize}
-                            onPageChange={setCustomerPage}
-                            onPageSizeChange={changePageSize}
-                            onCreate={openFor}
-                        />
-                    </TabsContent>
-                    <TabsContent value="prospecting" className="grid gap-2">
-                        <div className="flex justify-end">
-                            <Button size="sm" onClick={() => openBlank("prospecting")}>
-                                <Plus className="size-4" aria-hidden />
-                                Add prospect
+                <Card className="gap-0 overflow-hidden py-0">
+                    <div className="flex flex-col gap-2 px-4 py-2 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="relative w-full lg:max-w-xs">
+                            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search name, code, contact…"
+                                aria-label="Search sources"
+                                className="pl-8"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            {tab === "referrals" ? (
+                                <>
+                                    <Select
+                                        value={referralWebsite}
+                                        onValueChange={setReferralWebsite}
+                                    >
+                                        <SelectTrigger
+                                            className="w-full sm:w-[170px]"
+                                            aria-label="Filter by website"
+                                        >
+                                            <SelectValue placeholder="Website" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All websites</SelectItem>
+                                            {websites.map((w) => (
+                                                <SelectItem key={w.website_id} value={String(w.website_id)}>
+                                                    {w.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Select
+                                        value={referralStatus}
+                                        onValueChange={setReferralStatus}
+                                    >
+                                        <SelectTrigger
+                                            className="w-full sm:w-[170px]"
+                                            aria-label="Filter by account status"
+                                        >
+                                            <SelectValue placeholder="Status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All statuses</SelectItem>
+                                            {knownStatuses.map((s) => (
+                                                <SelectItem key={s} value={s}>
+                                                    {s}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </>
+                            ) : (
+                                <Select
+                                    value={contactFilter}
+                                    onValueChange={(value) =>
+                                        setContactFilter(value as typeof contactFilter)
+                                    }
+                                >
+                                    <SelectTrigger
+                                        className="w-full sm:w-[150px]"
+                                        aria-label="Filter by contact"
+                                    >
+                                        <SelectValue placeholder="Contact" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All contacts</SelectItem>
+                                        <SelectItem value="with">With contact</SelectItem>
+                                        <SelectItem value="missing">Missing contact</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            <ClientCombobox
+                                clients={clients}
+                                value={resolved ?? null}
+                                onChange={pickClient}
+                                isLoading={clientsLoading}
+                                error={clientsError}
+                                onRetry={() => void refreshClients()}
+                            />
+                            {hasFilter ? (
+                                <Button variant="ghost" size="sm" onClick={resetFilters}>
+                                    Reset
+                                </Button>
+                            ) : null}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={refreshAll}
+                                aria-label="Refresh sources"
+                            >
+                                <RefreshCw className="size-4" aria-hidden />
+                                Refresh
                             </Button>
                         </div>
-                        <SourcePanel
-                            kind="prospecting"
-                            dealerId={resolved}
-                            search={debouncedSearch}
-                            page={prospectingPage}
-                            pageSize={pageSize}
-                            onPageChange={setProspectingPage}
-                            onPageSizeChange={changePageSize}
-                            onCreate={openFor}
-                        />
-                    </TabsContent>
-                </Tabs>
+                    </div>
+
+                    <Tabs value={tab} onValueChange={(value) => setTab(value as SourceKind | "referrals")}>
+                        <div className="px-4 sm:px-6">
+                            <TabsList>
+                                <TabsTrigger value="customer" className="min-h-11 md:min-h-0">
+                                    Customer
+                                </TabsTrigger>
+                                <TabsTrigger value="prospecting" className="min-h-11 md:min-h-0">
+                                    Prospecting
+                                </TabsTrigger>
+                                <TabsTrigger value="referrals" className="min-h-11 md:min-h-0">
+                                    Referral accounts
+                                </TabsTrigger>
+                            </TabsList>
+                        </div>
+                        <TabsContent value="customer" className="grid gap-2 px-4 pb-4 sm:px-6 sm:pb-6">
+                            <SourcePanel
+                                key={`customer-${resolved}-${refreshNonce}`}
+                                kind="customer"
+                                dealerId={resolved}
+                                search={debouncedSearch}
+                                contact={contactFilter}
+                                isFiltered={hasFilter}
+                                page={customerPage}
+                                pageSize={pageSize}
+                                onPageChange={setCustomerPage}
+                                onPageSizeChange={changePageSize}
+                                onCreate={openFor}
+                                onOpenLead={openLead}
+                            />
+                        </TabsContent>
+                        <TabsContent
+                            value="prospecting"
+                            className="grid gap-2 px-4 pb-4 sm:px-6 sm:pb-6"
+                        >
+                            <div className="flex justify-end">
+                                <Button size="sm" onClick={() => openBlank("prospecting")}>
+                                    <Plus className="size-4" aria-hidden />
+                                    Add prospect
+                                </Button>
+                            </div>
+                            <SourcePanel
+                                key={`prospecting-${resolved}-${refreshNonce}`}
+                                kind="prospecting"
+                                dealerId={resolved}
+                                search={debouncedSearch}
+                                contact={contactFilter}
+                                isFiltered={hasFilter}
+                                page={prospectingPage}
+                                pageSize={pageSize}
+                                onPageChange={setProspectingPage}
+                                onPageSizeChange={changePageSize}
+                                onCreate={openFor}
+                                onOpenLead={openLead}
+                            />
+                        </TabsContent>
+                        <TabsContent
+                            value="referrals"
+                            className="grid gap-2 px-4 pb-4 sm:px-6 sm:pb-6"
+                        >
+                            <ReferralPanel
+                                key={`referrals-${resolved}-${refreshNonce}`}
+                                dealerId={resolved}
+                                search={debouncedSearch}
+                                status={referralStatus}
+                                websiteId={
+                                    referralWebsite === "all" ? null : Number(referralWebsite)
+                                }
+                                isFiltered={
+                                    search.trim() !== "" ||
+                                    referralStatus !== "all" ||
+                                    referralWebsite !== "all"
+                                }
+                                page={referralsPage}
+                                pageSize={pageSize}
+                                onPageChange={setReferralsPage}
+                                onPageSizeChange={changePageSize}
+                                onCreate={openFor}
+                                onOpenLead={openLead}
+                                onStatuses={reportReferralStatuses}
+                            />
+                        </TabsContent>
+                    </Tabs>
+                </Card>
             )}
 
             <CreateLeadDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={prefill} />

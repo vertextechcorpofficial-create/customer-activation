@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
 import {
     Dialog,
     DialogClose,
@@ -14,10 +23,250 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { LeadCreateSchema, type SourceOption } from "../types/lead.schema";
+import { LeadCreateSchema, type LeadCreate, type SourceOption } from "../types/lead.schema";
 import { createLead } from "../providers/lead-provider";
 import { TagMultiCombobox } from "./tag-multi-combobox";
+import { cn } from "@/lib/utils";
+
+interface TelemarketingProduct {
+    product_id: number;
+    product_code: string;
+    name: string;
+    is_active: number | boolean;
+    sort_order: number | null;
+    website_id?: number | null;
+    website_code?: string | null;
+    website_name?: string | null;
+}
+
+/** Distinct site key — products without any site field all share one bucket. */
+function siteKey(p: TelemarketingProduct): string | number {
+    return (p.website_id ?? p.website_code ?? p.website_name ?? "__single__") as string | number;
+}
+
+/** `name — website` only when the catalogue spans sites; plain name otherwise. */
+function productLabel(p: TelemarketingProduct, multiSite: boolean): string {
+    if (!multiSite) return p.name;
+    const site = (p.website_name ?? "").trim();
+    return site ? `${p.name} — ${site}` : p.name;
+}
+
+const PRODUCTS_URL = "/api/customer-activation/telemarketing/telemarketing-products";
+
+/**
+ * Active products for the single-select. Never throws: a missing catalog
+ * resolves to an empty list so the form keeps its layout and the field
+ * validates as "select a product" instead of breaking.
+ */
+function useProducts() {
+    const [products, setProducts] = useState<TelemarketingProduct[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [nonce, setNonce] = useState(0);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            setIsLoading(true);
+            setError(null);
+            try {
+                const res = await fetch(PRODUCTS_URL, { cache: "no-store" });
+                const body = (await res.json().catch(() => null)) as {
+                    success: boolean;
+                    data?: TelemarketingProduct[];
+                    message?: string;
+                } | null;
+                if (!res.ok || !body?.success) throw new Error(body?.message ?? "Could not load products");
+                if (!cancelled) setProducts((body.data ?? []).filter((p) => Number(p.is_active) === 1));
+            } catch (e) {
+                if (!cancelled) {
+                    setProducts([]);
+                    setError(e instanceof Error ? e.message : "Could not load products");
+                }
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        }
+        void load();
+        return () => {
+            cancelled = true;
+        };
+    }, [nonce]);
+
+    return { products, isLoading, error, retry: () => setNonce((n) => n + 1) };
+}
+
+/** Required single-select over the product catalog — Popover + Command, one product per lead. */
+export function ProductCombobox({
+    controlId,
+    value,
+    onChange,
+    disabled,
+    invalid,
+    describedBy,
+    websiteId,
+    preselectCode,
+}: {
+    controlId: string;
+    value: number | null;
+    onChange: (id: number) => void;
+    disabled?: boolean;
+    invalid?: boolean;
+    describedBy?: string;
+    /**
+     * Referral conversion only: when set, only products of that website are
+     * offered so a lead never lands in the wrong brand. Null/undefined means
+     * no narrowing.
+     */
+    websiteId?: number | null;
+    /**
+     * Referral conversion only: product code to preselect, matched within
+     * the scoped (website-narrowed) list. A code that matches nothing leaves
+     * the picker empty — the required-product validation speaks instead.
+     */
+    preselectCode?: string | null;
+}) {
+    const { products, isLoading, error, retry } = useProducts();
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const q = query.trim().toLowerCase();
+    const scoped =
+        websiteId === null || websiteId === undefined
+            ? products
+            : products.filter((p) => Number(p.website_id) === websiteId);
+    const code = preselectCode?.trim() ?? "";
+    // Preselect once per code: an exact (case-insensitive) match on
+    // `product_code` within the account's own website wins. A ref (not
+    // state) guards repeats, and a parent reset back to null re-arms the
+    // same code — e.g. dialog reopen or bulk clear-then-reselect.
+    const appliedRef = useRef<string | null>(null);
+    const prevValueRef = useRef<number | null>(null);
+    useEffect(() => {
+        // A parent reset back to null (dialog reopen, bulk clear) re-arms
+        // the same code instead of sticking to a stale guard.
+        if (prevValueRef.current !== null && value === null) appliedRef.current = null;
+        prevValueRef.current = value;
+        if (isLoading || value !== null || !code || appliedRef.current === code) return;
+        const match = scoped.find((p) => p.product_code.trim().toLowerCase() === code.toLowerCase());
+        if (!match) return;
+        appliedRef.current = code;
+        onChange(match.product_id);
+    }, [isLoading, value, code, scoped, onChange]);
+    const scopedMatch = code
+        ? scoped.find((p) => p.product_code.trim().toLowerCase() === code.toLowerCase())
+        : undefined;
+    const unmatched = !isLoading && !error && code !== "" && value === null && !scopedMatch;
+    const multiSite = new Set(products.map(siteKey)).size > 1;
+    const filtered = q
+        ? scoped.filter((p) => {
+              const label = productLabel(p, multiSite).toLowerCase();
+              return (
+                  label.includes(q) ||
+                  p.name.toLowerCase().includes(q) ||
+                  p.product_code.toLowerCase().includes(q) ||
+                  (p.website_name ?? "").toLowerCase().includes(q)
+              );
+          })
+        : scoped;
+    const selected = products.find((p) => p.product_id === value) ?? null;
+    const label = selected
+        ? productLabel(selected, multiSite)
+        : isLoading
+          ? "Loading products…"
+          : "Select a product";
+
+    return (
+        <>
+            <Popover
+                open={open}
+                onOpenChange={(next) => {
+                    setOpen(next);
+                    if (!next) setQuery("");
+                }}
+            >
+                <PopoverTrigger asChild>
+                    <Button
+                        id={controlId}
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={open}
+                        aria-label="Product"
+                        aria-invalid={invalid}
+                        aria-describedby={describedBy}
+                        disabled={disabled}
+                        className="h-9 w-full justify-between font-normal"
+                    >
+                        <span className="min-w-0 flex-1 truncate text-left" title={label}>
+                            {label}
+                        </span>
+                        <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command shouldFilter={false} label="Search products">
+                        <CommandInput placeholder="Search products…" value={query} onValueChange={setQuery} />
+                        <CommandList className="max-h-60">
+                            <CommandEmpty>
+                                {isLoading
+                                    ? "Loading products…"
+                                    : error
+                                      ? "Could not load products."
+                                      : "No products found."}
+                            </CommandEmpty>
+                            <CommandGroup>
+                                {filtered.map((p) => {
+                                    const optionLabel = productLabel(p, multiSite);
+                                    return (
+                                        <CommandItem
+                                            key={p.product_id}
+                                            value={`${optionLabel} ${p.product_code} ${p.product_id}`}
+                                            keywords={[optionLabel, p.name, p.product_code]}
+                                            title={optionLabel}
+                                            onSelect={() => {
+                                                onChange(p.product_id);
+                                                setOpen(false);
+                                                setQuery("");
+                                            }}
+                                        >
+                                            <Check
+                                                className={cn(
+                                                    "size-4 shrink-0",
+                                                    p.product_id === value ? "opacity-100" : "opacity-0",
+                                                )}
+                                                aria-hidden
+                                            />
+                                            <span className="min-w-0 flex-1 truncate">{optionLabel}</span>
+                                        </CommandItem>
+                                    );
+                                })}
+                            </CommandGroup>
+                        </CommandList>
+                    </Command>
+                </PopoverContent>
+            </Popover>
+            {error && !isLoading ? (
+                <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <span>{error}</span>
+                    <button
+                        type="button"
+                        onClick={retry}
+                        className="rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                        Retry
+                    </button>
+                </p>
+            ) : unmatched ? (
+                <p className="text-xs text-muted-foreground">
+                    No product matches &ldquo;{code}&rdquo; in this website&rsquo;s catalogue —
+                    pick the closest one.
+                </p>
+            ) : null}
+        </>
+    );
+}
 
 export interface LeadPrefill {
     company_name?: string;
@@ -28,11 +277,25 @@ export interface LeadPrefill {
     industry?: string | null;
     product_interest?: string | null;
     need?: string | null;
+    /** Referral accounts only: the registrant's job title — display only, never written to the lead. */
+    position?: string | null;
     source: SourceOption;
     party_kind?: "customer" | "company" | "dealer" | "none";
     party_id?: number | null;
     /** Client the row was browsed from — recorded as lead provenance when the column exists. */
     dealer_id?: number | null;
+    /** Referral accounts only: `referrer_id` of the account — persisted on the lead. Other sources send nothing. */
+    referrer_id?: number | null;
+    /** Referral accounts only: owning website — narrows the product picker to that brand. */
+    website_id?: number | null;
+    /** Referral accounts only: owning website name — display only. */
+    website_name?: string | null;
+    /**
+     * Referral accounts only: product code the account asked for — the
+     * dialog preselects the matching product within `website_id`. Empty
+     * when the account carries no enquiry; never invented.
+     */
+    product_code?: string | null;
 }
 
 let provenanceWarned = false;
@@ -67,12 +330,12 @@ export function CreateLeadDialog({
     const [email, setEmail] = useState("");
     const [address, setAddress] = useState("");
     const [industry, setIndustry] = useState("");
-    const [productInterest, setProductInterest] = useState("");
+    const [productId, setProductId] = useState<number | null>(null);
     const [need, setNeed] = useState("");
     const [tagIds, setTagIds] = useState<number[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     // Inline, calm validation surface — set on submit, cleared as the user types.
-    const [fieldErrors, setFieldErrors] = useState<{ company?: string; contact?: string }>({});
+    const [fieldErrors, setFieldErrors] = useState<{ company?: string; contact?: string; product?: string }>({});
 
     const prefillKey = JSON.stringify(prefill);
 
@@ -85,7 +348,7 @@ export function CreateLeadDialog({
         setEmail(p?.email ?? "");
         setAddress(p?.address ?? "");
         setIndustry(p?.industry ?? "");
-        setProductInterest(p?.product_interest ?? "");
+        setProductId(null);
         setNeed(p?.need ?? "");
         setTagIds([]);
         setFieldErrors({});
@@ -98,24 +361,25 @@ export function CreateLeadDialog({
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!canSubmit) return;
-        const nextErrors: { company?: string; contact?: string } = {};
+        const nextErrors: { company?: string; contact?: string; product?: string } = {};
         if (!companyName.trim()) nextErrors.company = "Company name is required";
         if (!mobile.trim() && !email.trim()) nextErrors.contact = "Enter a mobile number or an email address";
+        if (productId === null) nextErrors.product = "Select a product";
         setFieldErrors(nextErrors);
-        if (nextErrors.company || nextErrors.contact) return;
+        if (nextErrors.company || nextErrors.contact || nextErrors.product) return;
         const tags = tagIds.filter((v) => Number.isInteger(v));
         const parsed = LeadCreateSchema.safeParse({
             source,
             party_kind: prefill?.party_kind ?? "none",
             party_id: prefill?.party_id ?? null,
             dealer_id: prefill?.dealer_id ?? undefined,
+            referrer_id: prefill?.referrer_id ?? undefined,
             company_name: companyName.trim(),
             contact_name: contactName.trim() || null,
             mobile: mobile.trim() || null,
             email: email.trim() || null,
             address: address.trim() || null,
             industry: industry.trim() || null,
-            product_interest: productInterest.trim() || null,
             need: need.trim() || null,
             tag_ids: tags.length ? tags : undefined,
         });
@@ -125,7 +389,9 @@ export function CreateLeadDialog({
         }
         setIsSubmitting(true);
         try {
-            const outcome = await createLead(parsed.data);
+            // product_id rides alongside the schema payload until LeadCreateSchema
+            // carries it — the provider serializes the whole object.
+            const outcome = await createLead({ ...parsed.data, product_id: productId } as LeadCreate);
             if (outcome.duplicate) {
                 toast.error("Duplicate lead", {
                     description: outcome.matched.label ? `Matches ${outcome.matched.label}` : "Already exists",
@@ -147,12 +413,13 @@ export function CreateLeadDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto rounded-2xl p-0 sm:max-w-[500px]">
-                <DialogHeader className="p-6 pb-0">
+            <DialogContent className="flex h-[min(90dvh,44rem)] w-[95vw] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[500px]">
+                <DialogHeader className="shrink-0 p-6 pb-0">
                     <DialogTitle>Create lead</DialogTitle>
                     <DialogDescription>Snapshot is copied onto the lead at creation.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit} className="grid gap-3 p-6 pt-0">
+                <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-6 py-4">
                     <div className="grid gap-1.5">
                         <Label htmlFor="lg-source">Source</Label>
                         <Input id="lg-source" value={source} disabled readOnly />
@@ -170,6 +437,7 @@ export function CreateLeadDialog({
                             }}
                             placeholder="Acme Trading"
                             maxLength={191}
+                            required
                             aria-invalid={Boolean(fieldErrors.company)}
                             aria-describedby={fieldErrors.company ? "lg-company-error" : undefined}
                         />
@@ -190,6 +458,25 @@ export function CreateLeadDialog({
                                 maxLength={191}
                             />
                         </div>
+                        {prefill?.position ? (
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="lg-position">Position</Label>
+                                <Input id="lg-position" value={prefill.position} disabled readOnly />
+                            </div>
+                        ) : (
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="lg-industry">Industry</Label>
+                                <Input
+                                    id="lg-industry"
+                                    value={industry}
+                                    onChange={(e) => setIndustry(e.target.value)}
+                                    placeholder="Retail"
+                                    maxLength={128}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    {prefill?.position ? (
                         <div className="grid gap-1.5">
                             <Label htmlFor="lg-industry">Industry</Label>
                             <Input
@@ -200,12 +487,10 @@ export function CreateLeadDialog({
                                 maxLength={128}
                             />
                         </div>
-                    </div>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="grid gap-1.5">
-                            <Label htmlFor="lg-mobile">
-                                Mobile <span className="text-destructive">*</span>
-                            </Label>
+                            <Label htmlFor="lg-mobile">Mobile</Label>
                             <Input
                                 id="lg-mobile"
                                 value={mobile}
@@ -216,13 +501,13 @@ export function CreateLeadDialog({
                                 placeholder="0917…"
                                 maxLength={32}
                                 aria-invalid={Boolean(fieldErrors.contact)}
-                                aria-describedby={fieldErrors.contact ? "lg-contact-error" : undefined}
+                                aria-describedby={
+                                    fieldErrors.contact ? "lg-contact-hint lg-contact-error" : "lg-contact-hint"
+                                }
                             />
                         </div>
                         <div className="grid gap-1.5">
-                            <Label htmlFor="lg-email">
-                                Email <span className="text-destructive">*</span>
-                            </Label>
+                            <Label htmlFor="lg-email">Email</Label>
                             <Input
                                 id="lg-email"
                                 type="email"
@@ -234,11 +519,15 @@ export function CreateLeadDialog({
                                 placeholder="jane@example.com"
                                 maxLength={191}
                                 aria-invalid={Boolean(fieldErrors.contact)}
-                                aria-describedby={fieldErrors.contact ? "lg-contact-error" : undefined}
+                                aria-describedby={
+                                    fieldErrors.contact ? "lg-contact-hint lg-contact-error" : "lg-contact-hint"
+                                }
                             />
                         </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">Mobile or email required</p>
+                    <p id="lg-contact-hint" className="text-xs text-muted-foreground">
+                        Mobile or email required
+                    </p>
                     {fieldErrors.contact ? (
                         <p id="lg-contact-error" role="alert" className="text-xs text-destructive">
                             {fieldErrors.contact}
@@ -255,14 +544,27 @@ export function CreateLeadDialog({
                         />
                     </div>
                     <div className="grid gap-1.5">
-                        <Label htmlFor="lg-interest">Product interest</Label>
-                        <Input
-                            id="lg-interest"
-                            value={productInterest}
-                            onChange={(e) => setProductInterest(e.target.value)}
-                            placeholder="Product or category"
-                            maxLength={64}
+                        <Label htmlFor="lg-product">
+                            Product <span className="text-destructive">*</span>
+                        </Label>
+                        <ProductCombobox
+                            controlId="lg-product"
+                            value={productId}
+                            onChange={(id) => {
+                                setProductId(id);
+                                if (fieldErrors.product) setFieldErrors((prev) => ({ ...prev, product: undefined }));
+                            }}
+                            disabled={isSubmitting}
+                            invalid={Boolean(fieldErrors.product)}
+                            describedBy={fieldErrors.product ? "lg-product-error" : undefined}
+                            websiteId={prefill?.website_id ?? null}
+                            preselectCode={prefill?.product_code ?? null}
                         />
+                        {fieldErrors.product ? (
+                            <p id="lg-product-error" role="alert" className="text-xs text-destructive">
+                                {fieldErrors.product}
+                            </p>
+                        ) : null}
                     </div>
                     <div className="grid gap-1.5">
                         <Label htmlFor="lg-need">Need</Label>
@@ -283,7 +585,8 @@ export function CreateLeadDialog({
                             disabled={isSubmitting}
                         />
                     </div>
-                    <DialogFooter>
+                    </div>
+                    <DialogFooter className="shrink-0 border-t bg-muted/20 px-6 py-4">
                         <DialogClose asChild>
                             <Button type="button" variant="outline" disabled={isSubmitting}>
                                 Cancel

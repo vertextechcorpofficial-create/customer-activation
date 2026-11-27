@@ -35,24 +35,29 @@ export type AssignedItemRef = z.infer<typeof AssignedItemRefSchema>;
 export const NoteSchema = z.object({
     id: z.number().int(),
     customer_id: z.number().int(),
-    body: z.string().min(1).max(5000),
+    body: z.string().min(1).max(20000),
     created_by: z.number().int().nullable().optional(),
     created_at: PhTimestampSchema,
     updated_by: z.number().int().nullable().optional(),
     updated_at: PhTimestampSchema,
+    preview: z.string().optional(),
 });
 
 export type Note = z.infer<typeof NoteSchema>;
 
+// Sanitised note with a derived plain-text preview (computed server-side,
+// never stored). `preview` stays optional so Directus rows still validate.
+export type NoteWithPreview = Note & { preview: string };
+
 export const CreateNoteSchema = z.object({
     customer_id: z.number().int().positive(),
-    body: z.string().min(1).max(5000),
+    body: z.string().min(1).max(20000),
 });
 
 export type CreateNoteInput = z.infer<typeof CreateNoteSchema>;
 
 export const UpdateNoteSchema = z.object({
-    body: z.string().min(1).max(5000),
+    body: z.string().min(1).max(20000),
 });
 
 export type UpdateNoteInput = z.infer<typeof UpdateNoteSchema>;

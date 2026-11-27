@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ClaimSchema } from "@/modules/customer-activation/telemarketing/telemarketing-pipeline/types/pipeline.schema";
 import {
+  ClaimServiceError,
   claim,
   listClaimants,
   release,
@@ -76,6 +77,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (body instanceof NextResponse) return body;
     return NextResponse.json({ success: true, data: await claim(leadId, auth.agentId, auth.userId) });
   } catch (e) {
+    if (e instanceof ClaimServiceError)
+      return NextResponse.json({ success: false, message: e.message }, { status: e.status });
     console.error("[pipeline/leads/:id/claim POST]", e);
     return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
   }

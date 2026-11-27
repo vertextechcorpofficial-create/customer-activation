@@ -5,37 +5,33 @@ import {
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
-  BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NavUser } from "@/components/shared/app-sidebar/nav-user";
 
-export type PipelineActiveTab = "board" | "pool" | "leads" | "settings";
+export type PipelineActiveTab = "board" | "pool" | "settings";
 
 export type PipelineShellUser = {
   name: string;
   email: string;
-  avatar: string;
 };
 
 export type PipelineShellProps = {
   user: PipelineShellUser;
   crumb: string;
-  active: PipelineActiveTab;
+  active?: PipelineActiveTab;
   children: ReactNode;
 };
 
 const BOARD_HREF = "/customer-activation/telemarketing/telemarketing-pipeline";
 const POOL_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/pool";
-const LEADS_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/leads";
 const SETTINGS_HREF = "/customer-activation/telemarketing/telemarketing-pipeline/settings";
 
 const TABS: Array<{ key: PipelineActiveTab; label: string; href: string }> = [
   { key: "board", label: "Board", href: BOARD_HREF },
   { key: "pool", label: "Pool", href: POOL_HREF },
-  { key: "leads", label: "Leads", href: LEADS_HREF },
   { key: "settings", label: "Settings", href: SETTINGS_HREF },
 ];
 
@@ -55,7 +51,6 @@ export function headerUser(payload: Record<string, unknown> | null): PipelineShe
   return {
     name: [first, last].filter(Boolean).join(" ") || email || "User",
     email: email || "",
-    avatar: "/avatars/shadcn.jpg",
   };
 }
 
@@ -80,12 +75,8 @@ export function PipelineShell({ user, crumb, active, children }: PipelineShellPr
                 <BreadcrumbLink href="/customer-activation/telemarketing">Telemarketing</BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator className="hidden shrink-0 md:block" />
-              <BreadcrumbItem className="hidden shrink-0 md:block">
-                <BreadcrumbLink href={BOARD_HREF}>Pipeline</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="hidden shrink-0 md:block" />
               <BreadcrumbItem>
-                <BreadcrumbPage className="truncate">{crumb}</BreadcrumbPage>
+                <span className="truncate font-normal text-foreground">{crumb}</span>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -94,7 +85,10 @@ export function PipelineShell({ user, crumb, active, children }: PipelineShellPr
           <NavUser user={user} />
         </div>
       </header>
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-2 sm:p-4">
+      <main
+        tabIndex={0}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto p-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-4"
+      >
         <nav aria-label="Pipeline sections" className="flex flex-wrap items-center gap-1 border-b border-border pb-2 mb-4">
           {TABS.map((tab) => {
             const isActive = tab.key === active;

@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { AlertTriangle, Loader2, Pencil, Plus, PowerOff, RefreshCw, Search, Tags } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-    AlertDialog,
+import { useMemo, useState, type FormEvent } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { AlertTriangle, Loader2, MoreHorizontal, Pencil, Plus, PowerOff } from "lucide-react";
+import { AlertDialog,
     AlertDialogAction,
     AlertDialogCancel,
     AlertDialogContent,
@@ -14,7 +13,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
     Dialog,
     DialogClose,
@@ -25,26 +23,16 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-} from "@/components/ui/empty";
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { Switch } from "@/components/ui/switch";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { TagsListShell } from "./tags-list-shell";
 import { Textarea } from "@/components/ui/textarea";
 import type { Tag } from "../types/tag.schema";
 import { useTags } from "../hooks/use-tags";
@@ -98,18 +86,26 @@ function formFrom(tag: Tag): FormState {
 }
 
 export function TagSettings() {
-    const PAGE_SIZE = 20;
-    const [page, setPage] = useState(1);
+    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
     const [search, setSearch] = useState("");
     const { tags, total, isLoading, error, refresh, createTag, updateTag, deactivateTag } = useTags({
-        page,
-        limit: PAGE_SIZE,
+        page: pagination.pageIndex + 1,
+        limit: pagination.pageSize,
         search,
     });
 
-    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-    const to = Math.min(page * PAGE_SIZE, total);
+    const pageCount = Math.max(1, Math.ceil(total / pagination.pageSize));
+
+    // The header talks about the collection, not the filter, so a no-match
+    // search reads "0 of 8 tags" instead of claiming the list is empty.
+    const [collectionTotal, setCollectionTotal] = useState(0);
+    const isFiltered = search.trim() !== "";
+    const countLabel = error
+        ? "—"
+        : isFiltered
+          ? `${total} of ${collectionTotal} ${collectionTotal === 1 ? "tag" : "tags"}`
+          : `${total} ${total === 1 ? "tag" : "tags"}`;
+
     const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; tag: Tag } | null>(
         null,
     );
@@ -175,11 +171,110 @@ export function TagSettings() {
         if (ok) setConfirmDeactivate(null);
     };
 
+    const handleSearch = (value: string) => {
+        // Remember the unfiltered total as the filter first hides the list,
+        // so the header can say "0 of 8 tags" instead of "0 tags".
+        if (search.trim() === "" && value.trim() !== "") setCollectionTotal(total);
+        setSearch(value);
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    };
+
+    const clearSearch = () => {
+        setSearch("");
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    };
+
+    const columns: ColumnDef<Tag>[] = useMemo(
+        () => [
+            {
+                accessorKey: "tag_code",
+                header: "Code",
+                cell: ({ row }) => (
+                    <span
+                        className="block max-w-40 truncate font-mono text-xs tabular-nums"
+                        title={row.original.tag_code}
+                    >
+                        {row.original.tag_code}
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "tag_name",
+                header: "Name",
+                cell: ({ row }) => (
+                    <span className="block max-w-64 truncate font-medium" title={row.original.tag_name}>
+                        {row.original.tag_name}
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "color",
+                header: "Colour",
+                cell: ({ row }) => (
+                    <span className="flex min-w-0 items-center gap-2">
+                        <span
+                            aria-hidden="true"
+                            className="size-3 shrink-0 rounded-full border"
+                            style={{ backgroundColor: row.original.color ?? "transparent" }}
+                        />
+                        <span className="block max-w-24 truncate font-mono text-xs tabular-nums text-muted-foreground">
+                            {row.original.color ?? "—"}
+                        </span>
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "is_active",
+                header: "Status",
+                cell: ({ row }) => <TagStatus tag={row.original} />,
+            },
+            {
+                id: "actions",
+                header: "Actions",
+                cell: ({ row }) => {
+                    const tag = row.original;
+                    const active = flagOn(tag.is_active);
+                    return (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" aria-label={`Actions for ${tag.tag_name}`}>
+                                    <MoreHorizontal className="size-4" aria-hidden />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openEdit(tag)}>
+                                    Edit
+                                </DropdownMenuItem>
+                                {active ? (
+                                    <DropdownMenuItem onClick={() => setConfirmDeactivate(tag)}>
+                                        Deactivate
+                                    </DropdownMenuItem>
+                                ) : (
+                                    <DropdownMenuItem
+                                        onClick={() => void updateTag(tag.tag_id, { is_active: true })}
+                                    >
+                                        Activate
+                                    </DropdownMenuItem>
+                                )}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    );
+                },
+            },
+        ],
+        [updateTag],
+    );
+
     return (
         <div className="mx-auto w-full max-w-screen-2xl space-y-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="grid gap-1">
-                    <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tags</h1>
+                    <div className="flex items-baseline gap-2">
+                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Tags</h1>
+                        <p className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                            {countLabel}
+                        </p>
+                    </div>
                     <p className="text-sm text-muted-foreground">
                         Create colour-coded tags to label and segment telemarketing leads.
                     </p>
@@ -190,260 +285,103 @@ export function TagSettings() {
                 </Button>
             </header>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="relative w-full sm:max-w-xs">
-                    <Search
-                        className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                        aria-hidden
-                    />
-                    <Input
-                        value={search}
-                        onChange={(event) => {
-                            setSearch(event.target.value);
-                            setPage(1);
-                        }}
-                        placeholder="Search tags..."
-                        aria-label="Search tags"
-                        className="pl-8"
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm tabular-nums text-muted-foreground">
-                        {from}–{to} of {total}
-                    </span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page <= 1 || isLoading}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={page >= pageCount || isLoading}
-                        onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                    >
-                        Next
-                    </Button>
-                </div>
-            </div>
-
-            <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0 shadow-sm">
-                <CardContent className="p-0">
-                    {isLoading ? (
-                        <div className="space-y-2 p-6">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                                <Skeleton key={i} className="h-10 w-full" />
+            <TagsListShell
+                columns={columns}
+                data={tags}
+                isLoading={isLoading}
+                error={error}
+                onRefresh={() => void refresh()}
+                searchValue={search}
+                onSearch={handleSearch}
+                emptyTitle={isFiltered ? `No tags match “${search.trim()}”` : "No tags yet"}
+                emptyDescription={
+                    isFiltered
+                        ? "Check the spelling, or clear the search to see every tag."
+                        : "Create the first tag to start labelling leads."
+                }
+                pageCount={pageCount}
+                pagination={pagination}
+                onPaginationChange={setPagination}
+                manualPagination
+                filters={
+                    isFiltered ? (
+                        <Button variant="ghost" size="sm" onClick={clearSearch}>
+                            Clear search
+                        </Button>
+                    ) : undefined
+                }
+                cards={
+                    isLoading || error || tags.length === 0 ? null : (
+                        <ul className="divide-y divide-border">
+                            {tags.map((tag) => (
+                                <li
+                                    key={tag.tag_id}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Edit ${tag.tag_name}`}
+                                    onClick={(event) => {
+                                        if (isRowClickIgnored(event.target)) return;
+                                        openEdit(tag);
+                                    }}
+                                    onKeyDown={(event) => {
+                                        if (event.key !== "Enter" && event.key !== " ") return;
+                                        if (isRowClickIgnored(event.target)) return;
+                                        event.preventDefault();
+                                        openEdit(tag);
+                                    }}
+                                    className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                                >
+                                    <div className="flex min-w-0 items-start gap-2">
+                                        <span
+                                            aria-hidden="true"
+                                            className="mt-1 size-4 shrink-0 rounded-full border"
+                                            style={{ backgroundColor: tag.color ?? "transparent" }}
+                                        />
+                                        <div className="min-w-0">
+                                            <p className="font-medium break-words">{tag.tag_name}</p>
+                                            <p
+                                                className="font-mono text-xs break-words text-muted-foreground"
+                                                title={tag.color ?? undefined}
+                                            >
+                                                {tag.tag_code}
+                                                {tag.color ? ` · ${tag.color}` : ""}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        <TagStatus tag={tag} />
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            data-no-row-click
+                                            aria-label={`Edit ${tag.tag_name}`}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                openEdit(tag);
+                                            }}
+                                        >
+                                            <Pencil className="size-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            data-no-row-click
+                                            aria-label={`${flagOn(tag.is_active) ? "Deactivate" : "Activate"} ${tag.tag_name}`}
+                                            disabled={!flagOn(tag.is_active)}
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                setConfirmDeactivate(tag);
+                                            }}
+                                        >
+                                            <PowerOff className="size-4" />
+                                        </Button>
+                                    </div>
+                                </li>
                             ))}
-                        </div>
-                    ) : error ? (
-                        <div className="p-6">
-                            <Alert variant="destructive">
-                                <AlertTriangle />
-                                <AlertTitle>Could not load tags</AlertTitle>
-                                <AlertDescription>
-                                    <p>{error}</p>
-                                    <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                                        <RefreshCw className="size-4" />
-                                        Retry
-                                    </Button>
-                                </AlertDescription>
-                            </Alert>
-                        </div>
-                    ) : tags.length === 0 ? (
-                        <div className="p-6">
-                            <Empty>
-                                <EmptyHeader>
-                                    <EmptyMedia variant="icon">
-                                        <Tags />
-                                    </EmptyMedia>
-                                    <EmptyTitle>No tags yet</EmptyTitle>
-                                    <EmptyDescription>
-                                        Create the first tag to start labelling leads.
-                                    </EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button onClick={openCreate} className="min-h-11 md:min-h-0">
-                                        <Plus className="size-4" />
-                                        New tag
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
-                        </div>
-                    ) : (
-                        <>
-                            <ul className="divide-y divide-border md:hidden">
-                                {tags.map((tag) => (
-                                    <li
-                                        key={tag.tag_id}
-                                        tabIndex={0}
-                                        role="button"
-                                        aria-label={`Edit ${tag.tag_name}`}
-                                        onClick={(event) => {
-                                            if (isRowClickIgnored(event.target)) return;
-                                            openEdit(tag);
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (event.key !== "Enter" && event.key !== " ")
-                                                return;
-                                            if (isRowClickIgnored(event.target)) return;
-                                            event.preventDefault();
-                                            openEdit(tag);
-                                        }}
-                                        className="flex cursor-pointer flex-col gap-3 p-4 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex min-w-0 items-center gap-2">
-                                                <span
-                                                    aria-hidden="true"
-                                                    className="size-4 shrink-0 rounded-full border"
-                                                    style={{ backgroundColor: tag.color ?? "transparent" }}
-                                                />
-                                                <div className="min-w-0">
-                                                    <p className="font-medium break-words">{tag.tag_name}</p>
-                                                    <p className="font-mono text-xs text-muted-foreground break-words">
-                                                        {tag.tag_code}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <TagStatus tag={tag} />
-                                        </div>
-                                        <div className="flex items-center justify-end gap-1">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                data-no-row-click
-                                                aria-label={`Edit ${tag.tag_name}`}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    openEdit(tag);
-                                                }}
-                                            >
-                                                <Pencil className="size-4" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                data-no-row-click
-                                                aria-label={`Deactivate ${tag.tag_name}`}
-                                                disabled={!flagOn(tag.is_active)}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    setConfirmDeactivate(tag);
-                                                }}
-                                            >
-                                                <PowerOff className="size-4" />
-                                            </Button>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            <div className="hidden overflow-x-auto md:block [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-                                <Table className="min-w-2xl">
-                                    <TableHeader className="bg-muted/30">
-                                        <TableRow>
-                                            <TableHead className="w-40">Code</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead className="w-32">Colour</TableHead>
-                                            <TableHead className="w-32">Status</TableHead>
-                                            <TableHead className="w-36 text-center">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {tags.map((tag) => (
-                                            <TableRow
-                                                key={tag.tag_id}
-                                                tabIndex={0}
-                                                role="button"
-                                                aria-label={`Edit ${tag.tag_name}`}
-                                                onClick={(event) => {
-                                                    if (isRowClickIgnored(event.target)) return;
-                                                    openEdit(tag);
-                                                }}
-                                                onKeyDown={(event) => {
-                                                    if (
-                                                        event.key !== "Enter" &&
-                                                        event.key !== " "
-                                                    )
-                                                        return;
-                                                    if (isRowClickIgnored(event.target)) return;
-                                                    event.preventDefault();
-                                                    openEdit(tag);
-                                                }}
-                                                className="cursor-pointer hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-                                            >
-                                                <TableCell
-                                                    className="max-w-40 truncate font-mono text-xs"
-                                                    title={tag.tag_code}
-                                                >
-                                                    {tag.tag_code}
-                                                </TableCell>
-                                                <TableCell
-                                                    className="max-w-64 truncate"
-                                                    title={tag.tag_name}
-                                                >
-                                                    {tag.tag_name}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <span className="flex items-center gap-2">
-                                                        <span
-                                                            aria-hidden="true"
-                                                            className="size-4 shrink-0 rounded-full border"
-                                                            style={{
-                                                                backgroundColor: tag.color ?? "transparent",
-                                                            }}
-                                                        />
-                                                        <span className="max-w-20 truncate font-mono text-xs text-muted-foreground">
-                                                            {tag.color ?? "—"}
-                                                        </span>
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <TagStatus tag={tag} />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon-sm"
-                                                            data-no-row-click
-                                                            aria-label={`Edit ${tag.tag_name}`}
-                                                            title="Edit tag"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                openEdit(tag);
-                                                            }}
-                                                        >
-                                                            <Pencil className="size-4" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon-sm"
-                                                            data-no-row-click
-                                                            aria-label={`Deactivate ${tag.tag_name}`}
-                                                            title="Deactivate tag"
-                                                            disabled={!flagOn(tag.is_active)}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                setConfirmDeactivate(tag);
-                                                            }}
-                                                        >
-                                                            <PowerOff className="size-4" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        </>
-                    )}
-                </CardContent>
-            </Card>
+                        </ul>
+                    )
+                }
+            />
 
             <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
                 <DialogContent className="w-[95vw] max-h-[85vh] flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
@@ -458,7 +396,7 @@ export function TagSettings() {
                         </DialogDescription>
                     </DialogHeader>
                     <form
-                        onSubmit={handleSubmit}
+                        onSubmit={(event) => void handleSubmit(event)}
                         className="flex min-h-0 flex-1 flex-col overflow-hidden"
                     >
                         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 py-4">
@@ -477,7 +415,11 @@ export function TagSettings() {
                                     aria-describedby={errors.tag_code ? "tag-code-error" : undefined}
                                 />
                                 {errors.tag_code && (
-                                    <p id="tag-code-error" className="text-xs text-destructive">
+                                    <p
+                                        id="tag-code-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.tag_code}
                                     </p>
                                 )}
@@ -497,7 +439,11 @@ export function TagSettings() {
                                     aria-describedby={errors.tag_name ? "tag-name-error" : undefined}
                                 />
                                 {errors.tag_name && (
-                                    <p id="tag-name-error" className="text-xs text-destructive">
+                                    <p
+                                        id="tag-name-error"
+                                        className="flex items-start gap-1 text-xs text-foreground"
+                                    >
+                                        <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                                         {errors.tag_name}
                                     </p>
                                 )}
@@ -588,6 +534,7 @@ export function TagSettings() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
         </div>
     );
 }

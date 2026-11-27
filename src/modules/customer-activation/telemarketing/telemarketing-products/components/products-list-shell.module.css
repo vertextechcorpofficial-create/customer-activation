@@ -1,0 +1,5 @@
+/* Hides the shared data table's column-visibility menu. Module-scoped because
+   src/components/ui is owner-gated; the table offers no opt-out. */
+.hideColumnMenu :global(button:has(svg.lucide-settings-2)) {
+    display: none;
+}

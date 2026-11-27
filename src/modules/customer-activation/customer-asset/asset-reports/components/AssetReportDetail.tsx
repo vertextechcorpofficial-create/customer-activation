@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import type { ReactNode } from "react";
+import { Boxes, Package, PackageCheck, RefreshCw, Truck, Wallet } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useAssetReportDetail } from "../hooks/useAssetReportDetail";
+import { BackButton } from "./BackButton";
 import { StatusPill } from "./StatusPill";
 
 function isRetired(value: number | string | boolean | 0 | 1): boolean {
@@ -35,9 +37,41 @@ function formatStamp(value: string | null): string {
     return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
 }
 
+const humanDateFmt = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+});
+
 function formatDate(value: string | null): string {
     if (!value) return "—";
-    return value.length >= 10 ? value.slice(0, 10) : value;
+    const day = value.slice(0, 10);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+    if (!match) return day;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (Number.isNaN(date.getTime())) return day;
+    return humanDateFmt.format(date);
+}
+
+const stampFmt = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+});
+
+function formatHistoryStamp(value: string): string {
+    const time = new Date(value.replace(" ", "T")).getTime();
+    if (!Number.isFinite(time)) return formatStamp(value);
+    return stampFmt.format(new Date(time));
+}
+
+function monogram(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
 function eventLabel(event: string): string {
@@ -55,17 +89,56 @@ function eventLabel(event: string): string {
     }
 }
 
-function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+function eventDot(event: string): string {
+    switch (event) {
+        case "registered":
+            return "bg-blue-500";
+        case "tagged_to_customer":
+            return "bg-amber-500";
+        case "returned":
+            return "bg-emerald-500";
+        case "retired":
+            return "bg-zinc-400";
+        default:
+            return "bg-violet-500";
+    }
+}
+
+function KpiCard({
+    label,
+    value,
+    icon,
+    iconClass,
+    toneClass,
+    className = "",
+    children,
+}: {
+    label: string;
+    value: string;
+    icon: ReactNode;
+    iconClass: string;
+    toneClass: string;
+    className?: string;
+    children: ReactNode;
+}) {
     return (
-        <Card className="shadow-none border-border">
+        <Card
+            className={`shadow-none border border-border/60 dark:border-border ${toneClass} ${className}`.trimEnd()}
+        >
             <CardContent className="space-y-1 p-3 sm:p-4">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <span
+                        aria-hidden
+                        className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${iconClass}`}
+                    >
+                        {icon}
+                    </span>
+                </div>
                 <p className="truncate text-2xl font-semibold tabular-nums" title={value}>
                     {value}
                 </p>
-                <p className="truncate text-xs text-muted-foreground" title={sub}>
-                    {sub}
-                </p>
+                <div className="truncate text-xs text-muted-foreground">{children}</div>
             </CardContent>
         </Card>
     );
@@ -96,6 +169,9 @@ export function AssetReportDetail({ id }: { id: number }) {
     if (error || !detail) {
         return (
             <div className="mx-auto w-full max-w-[1600px]">
+                <div className="mb-3">
+                    <BackButton fallbackHref="/customer-activation/customer-asset/asset-reports" />
+                </div>
                 <Alert variant="destructive">
                     <AlertTitle>Could not load asset report</AlertTitle>
                     <AlertDescription>{error ?? "Asset not found."}</AlertDescription>
@@ -127,88 +203,151 @@ export function AssetReportDetail({ id }: { id: number }) {
         lifeSpan !== null
             ? `${valuation.elapsed_months} of ${lifeSpan} months depreciated · ${depreciationPct}%`
             : `${valuation.elapsed_months} months elapsed · ${depreciationPct}%`;
+    const overdueCount = holders.filter((holder) => holder.overdue).length;
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
+            <div className="mb-3">
+                <BackButton fallbackHref="/customer-activation/customer-asset/asset-reports" />
+            </div>
             {/* Hero */}
-            <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="overflow-hidden rounded-2xl border border-primary/15 bg-primary/[0.04] dark:border-primary/20 dark:bg-primary/[0.08]">
                 <div className="flex flex-col gap-3 p-4 sm:p-5">
-                    <Link
-                        href="/customer-activation/customer-asset/asset-reports"
-                        className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground underline-offset-4 hover:underline"
-                    >
-                        <ArrowLeft className="size-3.5" aria-hidden />
-                        Asset report
-                    </Link>
-                    <div className="min-w-0">
-                        <h1
-                            className="truncate text-xl font-semibold tracking-tight sm:text-2xl"
-                            title={item.name}
+                    <div className="flex items-center justify-end gap-2">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Refresh asset report"
+                            onClick={refresh}
+                            className="-mr-2 -mt-1 shrink-0"
                         >
-                            {item.name}
-                        </h1>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-mono text-xs tabular-nums text-muted-foreground" title={item.item_code}>
-                                {item.item_code}
-                            </span>
-                            {retired ? (
-                                <StatusPill tone="neutral" className="shrink-0">Retired</StatusPill>
-                            ) : (
-                                <StatusPill tone="success" className="shrink-0">Active</StatusPill>
-                            )}
-                            {item.group_name ? (
-                                <span className="truncate text-xs text-muted-foreground" title={item.group_name}>
-                                    {item.group_name}
-                                </span>
-                            ) : null}
+                            <RefreshCw className="size-4" aria-hidden />
+                        </Button>
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div
+                            aria-hidden
+                            className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground"
+                        >
+                            <Package className="size-6" />
                         </div>
-                        {tags.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                {tags.map((tag) => (
+                        <div className="min-w-0 flex-1">
+                            <h1
+                                className="line-clamp-2 text-xl font-semibold tracking-tight sm:text-2xl"
+                                title={item.name}
+                            >
+                                {item.name}
+                            </h1>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span
+                                    className="rounded-md border border-border bg-background/70 px-2 py-0.5 font-mono text-xs tabular-nums"
+                                    title={item.item_code}
+                                >
+                                    {item.item_code}
+                                </span>
+                                {retired ? (
+                                    <StatusPill tone="neutral" className="shrink-0">Retired</StatusPill>
+                                ) : (
+                                    <StatusPill tone="success" className="shrink-0">Active</StatusPill>
+                                )}
+                                {item.group_name ? (
                                     <span
-                                        key={tag.id}
-                                        className="inline-flex max-w-40 items-center gap-1.5 truncate rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
-                                        title={tag.tag_name}
+                                        className="inline-flex max-w-48 items-center truncate rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                                        title={item.group_name}
                                     >
-                                        <span
-                                            aria-hidden
-                                            className="size-2.5 shrink-0 rounded-full border"
-                                            style={tag.color ? { backgroundColor: tag.color } : undefined}
-                                        />
-                                        <span className="truncate">{tag.tag_name}</span>
+                                        <span className="truncate">{item.group_name}</span>
                                     </span>
-                                ))}
+                                ) : null}
                             </div>
-                        ) : null}
-                        <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-                            Last purchase {formatDate(item.last_purchase_at)} · Acquired {formatDate(item.date_acquired)}
-                        </p>
+                            {tags.length > 0 ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                    {tags.map((tag) => (
+                                        <span
+                                            key={tag.id}
+                                            role="img"
+                                            aria-label={tag.tag_name}
+                                            title={tag.tag_name}
+                                            className="inline-flex max-w-40 items-center gap-1.5 truncate rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+                                        >
+                                            <span
+                                                aria-hidden
+                                                className="size-2.5 shrink-0 rounded-full border"
+                                                style={tag.color ? { backgroundColor: tag.color } : undefined}
+                                            />
+                                            <span className="truncate">{tag.tag_name}</span>
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
+                            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+                                Last purchase {formatDate(item.last_purchase_at)} · Acquired {formatDate(item.date_acquired)}
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
 
             {/* KPI row */}
             <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-                <KpiCard label="Units on hand" value={String(stock.total)} sub={`${stock.total} unit${stock.total === 1 ? "" : "s"} total`} />
-                <KpiCard label="Available" value={String(stock.available)} sub="ready to assign" />
-                <KpiCard label="Out on assignment" value={String(stock.out)} sub={`${holders.length} holding${holders.length === 1 ? "" : "s"}`} />
+                <KpiCard
+                    label="Units on hand"
+                    value={String(stock.total)}
+                    icon={<Boxes className="size-4" aria-hidden />}
+                    iconClass="border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+                    toneClass="bg-blue-50/50 border-t-2 border-t-blue-400 dark:bg-blue-950/20 dark:border-t-blue-800"
+                >
+                    {item.group_name ?? "unassigned"}
+                </KpiCard>
+                <KpiCard
+                    label="Available"
+                    value={String(stock.available)}
+                    icon={<PackageCheck className="size-4" aria-hidden />}
+                    iconClass="border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    toneClass="bg-emerald-50/50 border-t-2 border-t-emerald-400 dark:bg-emerald-950/20 dark:border-t-emerald-800"
+                >
+                    {stock.out} out on assignment
+                </KpiCard>
+                <KpiCard
+                    label="Out"
+                    value={String(stock.out)}
+                    icon={<Truck className="size-4" aria-hidden />}
+                    iconClass="border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                    toneClass="bg-amber-50/50 border-t-2 border-t-amber-400 dark:bg-amber-950/20 dark:border-t-amber-800"
+                >
+                    {overdueCount > 0 ? (
+                        <span className="font-semibold text-rose-700 dark:text-rose-300">
+                            {holders.length} holder{holders.length === 1 ? "" : "s"} · {overdueCount} overdue
+                        </span>
+                    ) : (
+                        <span>
+                            {holders.length} holder{holders.length === 1 ? "" : "s"}
+                        </span>
+                    )}
+                </KpiCard>
                 <KpiCard
                     label="Projected total value"
                     value={formatPeso(valuation.total_value)}
-                    sub={`${formatPeso(valuation.unit_value)} / unit`}
-                />
+                    icon={<Wallet className="size-4" aria-hidden />}
+                    iconClass="border-primary/25 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/15"
+                    toneClass="bg-primary/[0.04] border-t-2 border-t-primary/60 dark:bg-primary/[0.08]"
+                    className="col-span-2 lg:col-span-1"
+                >
+                    {formatPeso(valuation.unit_value)} / unit
+                </KpiCard>
             </div>
 
             <div className="grid gap-3 lg:grid-cols-3 items-start">
                 {/* Left: valuation + holders */}
                 <div className="min-w-0 space-y-3 lg:col-span-2">
-                    <Card className="shadow-none border-border overflow-hidden">
+                    <Card className="shadow-none border border-border/60 dark:border-border overflow-hidden">
                         <CardHeader>
                             <div className="flex items-center justify-between gap-2">
                                 <h2 className="leading-none font-semibold">Valuation</h2>
                                 {valuation.is_fully_depreciated ? (
-                                    <StatusPill tone="neutral" className="shrink-0">Fully depreciated</StatusPill>
-                                ) : null}
+                                    <StatusPill tone="destructive" className="shrink-0">Fully depreciated</StatusPill>
+                                ) : (
+                                    <StatusPill tone="warning" className="shrink-0">Depreciating</StatusPill>
+                                )}
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-3">
@@ -245,7 +384,7 @@ export function AssetReportDetail({ id }: { id: number }) {
                         </CardContent>
                     </Card>
 
-                    <Card className="shadow-none border-border overflow-hidden">
+                    <Card className="shadow-none border border-border/60 dark:border-border overflow-hidden">
                         <CardHeader>
                             <div className="flex items-center justify-between gap-2">
                                 <h2 className="leading-none font-semibold">Holders</h2>
@@ -293,15 +432,25 @@ export function AssetReportDetail({ id }: { id: number }) {
                                                     className="cursor-pointer hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
                                                 >
                                                     <TableCell className="min-w-0">
-                                                        <Link
-                                                            href={`/customer-activation/customer-asset/asset-customers/${holder.customer_id}`}
-                                                            className="block max-w-56 truncate font-medium underline-offset-4 hover:underline"
-                                                            title={`${holder.customer_name} (${holder.customer_code})`}
-                                                        >
-                                                            {holder.customer_name}
-                                                        </Link>
-                                                        <span className="block truncate font-mono text-xs tabular-nums text-muted-foreground">
-                                                            {holder.customer_code}
+                                                        <span className="flex min-w-0 items-center gap-2.5">
+                                                            <span
+                                                                aria-hidden
+                                                                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+                                                            >
+                                                                {monogram(holder.customer_name)}
+                                                            </span>
+                                                            <span className="min-w-0">
+                                                                <Link
+                                                                    href={`/customer-activation/customer-asset/asset-customers/${holder.customer_id}`}
+                                                                    className="block max-w-56 truncate font-medium underline-offset-4 hover:underline"
+                                                                    title={`${holder.customer_name} (${holder.customer_code})`}
+                                                                >
+                                                                    {holder.customer_name}
+                                                                </Link>
+                                                                <span className="block truncate font-mono text-xs tabular-nums text-muted-foreground">
+                                                                    {holder.customer_code}
+                                                                </span>
+                                                            </span>
                                                         </span>
                                                     </TableCell>
                                                     <TableCell>
@@ -317,7 +466,7 @@ export function AssetReportDetail({ id }: { id: number }) {
                                                     </TableCell>
                                                     <TableCell>
                                                         <span
-                                                            className={`block whitespace-nowrap text-sm tabular-nums ${holder.overdue ? "text-destructive" : "text-muted-foreground"}`}
+                                                            className={`block whitespace-nowrap text-sm tabular-nums ${holder.overdue ? "font-medium text-rose-700 dark:text-rose-300" : "text-muted-foreground"}`}
                                                             title={holder.expected_return_at ?? ""}
                                                         >
                                                             {formatStamp(holder.expected_return_at)}
@@ -334,7 +483,7 @@ export function AssetReportDetail({ id }: { id: number }) {
                 </div>
 
                 {/* Right: history */}
-                <Card className="shadow-none border-border">
+                <Card className="shadow-none border border-border/60 dark:border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between gap-2">
                             <h2 className="leading-none font-semibold">History</h2>
@@ -352,11 +501,11 @@ export function AssetReportDetail({ id }: { id: number }) {
                                     <li key={event.id} className="relative min-w-0 pl-6">
                                         <span
                                             aria-hidden
-                                            className="absolute left-0 top-1.5 size-2.5 rounded-full border border-border bg-muted-foreground/40"
+                                            className={`absolute left-0 top-1.5 size-2.5 rounded-full ${eventDot(event.event)}`}
                                         />
                                         <p className="text-sm font-medium">{eventLabel(event.event)}</p>
                                         <p className="text-xs tabular-nums text-muted-foreground" title={event.occurred_at}>
-                                            {formatStamp(event.occurred_at)}
+                                            {formatHistoryStamp(event.occurred_at)}
                                         </p>
                                         {event.quantity_before !== null && event.quantity_after !== null ? (
                                             <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">

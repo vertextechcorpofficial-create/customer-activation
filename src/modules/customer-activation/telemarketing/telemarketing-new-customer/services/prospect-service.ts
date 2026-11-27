@@ -47,11 +47,13 @@ interface DedupeTarget {
     mobileFields: string[];
     idField: string;
     labelFields: string[];
+    /** True when the table carries `product_id` and dedupe is product-scoped there. */
+    hasProduct?: boolean;
 }
 
 const DEDUPE_TARGETS: DedupeTarget[] = [
-    { table: TABLE, emailFields: ["email"], mobileFields: ["mobile"], idField: "prospect_id", labelFields: ["company_name"] },
-    { table: "telemarketing_lead", emailFields: ["email"], mobileFields: ["mobile"], idField: "lead_id", labelFields: ["company_name"] },
+    { table: TABLE, emailFields: ["email"], mobileFields: ["mobile"], idField: "prospect_id", labelFields: ["company_name"], hasProduct: true },
+    { table: "telemarketing_lead", emailFields: ["email"], mobileFields: ["mobile"], idField: "lead_id", labelFields: ["company_name"], hasProduct: true },
     { table: "customer", emailFields: ["customer_email"], mobileFields: ["contact_number"], idField: "id", labelFields: ["customer_name"] },
     { table: "company_list", emailFields: ["company_email"], mobileFields: ["company_contact"], idField: "company_id", labelFields: ["company_name"] },
     { table: "dealer_list", emailFields: ["dealer_email"], mobileFields: ["dealer_contact"], idField: "dealer_id", labelFields: ["dealer_name"] },
@@ -154,10 +156,22 @@ function labelOf(row: Record<string, unknown>, fields: string[]): string {
     return "";
 }
 
-async function findDuplicate(email?: string | null, mobile?: string | null): Promise<DuplicateMatch | null> {
+async function findDuplicate(
+    email?: string | null,
+    mobile?: string | null,
+    productId?: number | null,
+): Promise<DuplicateMatch | null> {
     const mail = (email ?? "").trim().toLowerCase();
     const cell = (mobile ?? "").trim();
     if (!mail && !cell) return null;
+    // Same rule as leads: on product-carrying tables a duplicate needs a
+    // contact match AND the same product_id (null matches only null). The
+    // reference tables (customer/company/dealer) have no product, so they
+    // still dedupe on contact alone.
+    const productClause =
+        productId !== undefined && productId !== null
+            ? { product_id: { _eq: productId } }
+            : { product_id: { _null: true } };
     for (const target of DEDUPE_TARGETS) {
         const clauses: Record<string, unknown>[] = [];
         if (mail) for (const field of target.emailFields) clauses.push({ [field]: { _eq: mail } });
@@ -167,9 +181,12 @@ async function findDuplicate(email?: string | null, mobile?: string | null): Pro
             }
         }
         if (clauses.length === 0) continue;
+        const filter = target.hasProduct
+            ? { _and: [{ _or: clauses }, productClause] }
+            : { _or: clauses };
         const body = await dFetch(
             `/items/${target.table}${qs({
-                filter: JSON.stringify({ _or: clauses }),
+                filter: JSON.stringify(filter),
                 fields: [target.idField, ...target.labelFields].join(","),
                 limit: "1",
             })}`,
@@ -245,7 +262,7 @@ function isUniqueViolation(body: unknown): boolean {
 }
 
 export async function createProspect(input: ProspectCreate, userId: number | null): Promise<CreateProspectResult> {
-    const matched = await findDuplicate(input.email, input.mobile);
+    const matched = await findDuplicate(input.email, input.mobile, input.product_id ?? null);
     if (matched) return { duplicate: true, matched };
     const now = phNow();
     // `prospect_code` is derived from the current maximum, so two simultaneous creates can
@@ -268,6 +285,9 @@ export async function createProspect(input: ProspectCreate, userId: number | nul
                 industry: input.industry?.trim() || null,
                 product_interest: input.product_interest?.trim() || null,
                 need: input.need?.trim() || null,
+                // One product per prospect. No fallback: `product_id` must
+                // be a registered Directus field or this write is rejected.
+                product_id: input.product_id ?? null,
                 prospect_status: "new",
                 converted_customer_id: null,
                 converted_at: null,
@@ -315,6 +335,7 @@ export async function updateProspect(
     if (input.industry !== undefined) patch.industry = input.industry?.trim() || null;
     if (input.product_interest !== undefined) patch.product_interest = input.product_interest?.trim() || null;
     if (input.need !== undefined) patch.need = input.need?.trim() || null;
+    if (input.product_id !== undefined) patch.product_id = input.product_id ?? null;
     if (input.prospect_status !== undefined) patch.prospect_status = input.prospect_status;
     const body = await request<Prospect>(`/items/${TABLE}/${prospectId}`, {
         method: "PATCH",

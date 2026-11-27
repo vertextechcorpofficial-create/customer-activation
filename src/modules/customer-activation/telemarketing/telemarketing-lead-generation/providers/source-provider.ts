@@ -1,4 +1,4 @@
-import { type ClientOption, type SourceResult } from "../types/lead.schema";
+import { type ClientOption, type SourceResult, type SourceRow } from "../types/lead.schema";
 
 /**
  * Client-safe wrappers around the lead-generation source APIs.
@@ -19,6 +19,7 @@ export interface SourceQueryParams {
     search?: string;
     page?: number;
     limit?: number;
+    contact?: "with" | "missing";
 }
 
 async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -31,6 +32,7 @@ async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
 function withPaging(path: string, params: SourceQueryParams): string {
     const query = new URLSearchParams();
     if (params.search?.trim()) query.set("search", params.search.trim());
+    if (params.contact) query.set("contact", params.contact);
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const text = query.toString();
@@ -69,4 +71,158 @@ export function fetchProspectingSource(
     const paged = withPaging(`${BASE}/prospecting`, params);
     const separator = paged.includes("?") ? "&" : "?";
     return request<SourceResult>(`${paged}${separator}${query.toString()}`, signal);
+}
+
+const REFERRALS_BASE =
+    "/api/customer-activation/telemarketing/telemarketing-lead-generation/referral-accounts";
+
+const WEBSITES_URL = "/api/customer-activation/telemarketing/telemarketing-products/websites";
+
+/** One referral website from the catalogue. Per-module copy by project rule: no cross-module imports. */
+export interface WebsiteOption {
+    website_id: number;
+    website_code: string;
+    name: string;
+    status: string;
+}
+
+/** Every active referral website, sorted by name. Never throws — resolves to []. */
+export async function fetchWebsites(signal?: AbortSignal): Promise<WebsiteOption[]> {
+    try {
+        const res = await fetch(WEBSITES_URL, {
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            signal,
+        });
+        const body = (await res.json().catch(() => null)) as {
+            success: boolean;
+            data?: WebsiteOption[];
+        } | null;
+        if (!res.ok || !body?.success) return [];
+        return (body.data ?? [])
+            .filter((site) => site.status === "active")
+            .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+        return [];
+    }
+}
+
+export interface ReferralQueryParams {
+    search?: string;
+    page?: number;
+    limit?: number;
+    /** `account_status` narrow. Absent means no narrowing. */
+    status?: string;
+    /** Owning-website narrow. Absent means all websites. */
+    websiteId?: number;
+}
+
+/** One website registrant as served by the referral-accounts endpoint. */
+export interface ReferralAccountRow {
+    referrer_id: number;
+    referrer_code: string | null;
+    attached_referral_code?: string | null;
+    full_name: string | null;
+    company_name: string | null;
+    position: string | null;
+    mobile: string | null;
+    email: string | null;
+    account_status: string | null;
+    email_verified: number | boolean | null;
+    created_at: string | null;
+    website_id: number | null;
+    website_code: string | null;
+    website_name: string | null;
+    /** Product code the registrant asked for (`product_code`). */
+    product_code?: string | null;
+    /** Free-text need stored at registration (`need_text`). */
+    need_text?: string | null;
+    /** Address as given at registration. */
+    address?: string | null;
+    /** Industry as given at registration. */
+    industry?: string | null;
+    /** Raw consent timestamp (`consent_accepted_at`). */
+    consent_accepted_at?: string | null;
+    /** Signup-created lead id. Null when the account never converted. */
+    lead_id?: number | null;
+    /** Signup-created lead code. Null when the account never converted. */
+    lead_code?: string | null;
+}
+
+interface ReferralListEnvelope {
+    success: boolean;
+    data?: ReferralAccountRow[];
+    meta?: { total?: number };
+    message?: string;
+}
+
+function referralStr(v: unknown): string | null {
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function referralLeadId(v: unknown): number | null {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * One server-paged window of website registrants, mapped into `SourceRow`
+ * so the tab reuses the table, selection, and bulk-create machinery.
+ * `full_name` becomes the lead-facing name, falling back to `company_name`
+ * when the registrant supplied one; there is no address to carry.
+ */
+export async function fetchReferralAccounts(
+    params: ReferralQueryParams = {},
+    signal?: AbortSignal,
+): Promise<SourceResult> {
+    const query = new URLSearchParams();
+    if (params.search?.trim()) query.set("search", params.search.trim());
+    if (params.status?.trim()) query.set("status", params.status.trim());
+    if (params.websiteId !== undefined && Number.isInteger(params.websiteId) && params.websiteId > 0)
+        query.set("websiteId", String(params.websiteId));
+    if (params.page !== undefined) query.set("page", String(params.page));
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    const text = query.toString();
+    const res = await fetch(text ? `${REFERRALS_BASE}?${text}` : REFERRALS_BASE, {
+        headers: { "Content-Type": "application/json" },
+        signal,
+    });
+    const body = (await res.json().catch(() => null)) as ReferralListEnvelope | null;
+    if (!res.ok || !body?.success) throw new Error(body?.message ?? `Request failed (${res.status})`);
+    const rows: SourceRow[] = (Array.isArray(body.data) ? body.data : []).map((row) => ({
+        id: Number(row.referrer_id) || 0,
+        name: referralStr(row.company_name) ?? referralStr(row.full_name) ?? "(Unnamed registrant)",
+        code: referralStr(row.referrer_code),
+        contact: referralStr(row.mobile),
+        email: referralStr(row.email),
+        city: null,
+        province: null,
+        party_kind: "none" as const,
+        party_id: null,
+        source: "referral_accounts" as const,
+        attachedReferralCode: referralStr(row.attached_referral_code),
+        contactName: referralStr(row.full_name),
+        position: referralStr(row.position),
+        company: referralStr(row.company_name),
+        registeredAt: referralStr(row.created_at),
+        accountStatus: referralStr(row.account_status),
+        referrer_id: Number.isInteger(Number(row.referrer_id)) && Number(row.referrer_id) > 0 ? Number(row.referrer_id) : null,
+        websiteId:
+            Number.isInteger(Number((row as { website_id?: unknown }).website_id)) &&
+            Number((row as { website_id?: unknown }).website_id) > 0
+                ? Number((row as { website_id?: unknown }).website_id)
+                : null,
+        websiteCode: referralStr((row as { website_code?: unknown }).website_code as string | null),
+        websiteName: referralStr((row as { website_name?: unknown }).website_name as string | null),
+        leadId: referralLeadId((row as { lead_id?: unknown }).lead_id),
+        leadCode: referralStr((row as { lead_code?: unknown }).lead_code),
+        productCode: referralStr((row as { product_code?: unknown }).product_code),
+        needText: referralStr((row as { need_text?: unknown }).need_text),
+        enquiryAddress: referralStr((row as { address?: unknown }).address),
+        enquiryIndustry: referralStr((row as { industry?: unknown }).industry),
+        consentAcceptedAt: referralStr((row as { consent_accepted_at?: unknown }).consent_accepted_at),
+    }));
+    const total = Number(body.meta?.total);
+    if (!Number.isInteger(total) || total <= 0) return { status: "empty" };
+    return { status: "ok", rows, total };
 }

@@ -217,8 +217,6 @@ export function AssetGroupsModule() {
             </header>
             <div ref={listRef} onClick={handleRowClick} onKeyDown={handleRowKeyDown}>
             <AssetGroupsListShell<AssetGroup>
-                title="Asset groups"
-                description="Codes group related assets for registration and tagging."
                 columns={columns}
                 data={filteredGroups}
                 isLoading={isLoading}

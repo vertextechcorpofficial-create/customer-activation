@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,6 @@ import {
     CommandItem,
     CommandList,
 } from "@/components/ui/command";
-import { Popover, PopoverContentInDialog, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface TagOption {
@@ -40,7 +39,11 @@ function TagChip({ children, color }: { children: ReactNode; color?: string | nu
 
 /**
  * Searchable multi-select over `telemarketing_tag`.
- * Popover-based (not modal) so it works inside a Dialog without pointer-event fights.
+ *
+ * An in-flow disclosure, not a popover: inside a Dialog a portalled panel
+ * fights the dismissable layer, and the un-portalled variant gets clipped at
+ * the dialog's bottom edge. Living in the form's own scroll container avoids
+ * both.
  */
 export function TagMultiCombobox({
     value,
@@ -51,72 +54,74 @@ export function TagMultiCombobox({
     onChange: (ids: number[]) => void;
     disabled?: boolean;
 }) {
+    const panelId = useId();
     const [open, setOpen] = useState(false);
-    const [tags, setTags] = useState<TagOption[]>([]);
+    const [tags, setTags] = useState<TagOption[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [attempt, setAttempt] = useState(0);
+    const inFlight = useRef(false);
 
-    // Lazy: fetch once on first open, never on mount — the dialog may never
-    // need tags, and a retry reuses the same path via `attempt`.
-    useEffect(() => {
-        if (!open || tags.length > 0 || loading) return;
-        let alive = true;
-        (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const res = await fetch(TAGS_URL);
-                const body = (await res.json().catch(() => null)) as
-                    | { success: boolean; data?: TagOption[]; message?: string }
-                    | null;
-                if (!res.ok || !body?.success) throw new Error(body?.message ?? "Could not load tags");
-                if (alive) {
-                    setTags((body.data ?? []).filter((t) => Number(t.is_active) === 1));
-                }
-            } catch (e) {
-                if (alive) setError(e instanceof Error ? e.message : "Could not load tags");
-            } finally {
-                if (alive) setLoading(false);
-            }
-        })();
-        return () => {
-            alive = false;
-        };
-    }, [open, attempt, tags.length, loading]);
+    // Lazy: fetch on first open, never on mount — the dialog may never need
+    // tags. The re-entry guard is a ref so the request cannot cancel itself
+    // the way a `loading` dependency did.
+    async function loadTags() {
+        if (inFlight.current) return;
+        inFlight.current = true;
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(TAGS_URL);
+            const body = (await res.json().catch(() => null)) as
+                | { success: boolean; data?: TagOption[]; message?: string }
+                | null;
+            if (!res.ok || !body?.success) throw new Error(body?.message ?? "Could not load tags");
+            setTags((body.data ?? []).filter((t) => Number(t.is_active) === 1));
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "Could not load tags");
+        } finally {
+            inFlight.current = false;
+            setLoading(false);
+        }
+    }
 
-    const selected = tags.filter((t) => value.includes(t.tag_id));
+    const toggleOpen = () => {
+        const next = !open;
+        setOpen(next);
+        if (next && tags === null) void loadTags();
+    };
+
+    const selected = (tags ?? []).filter((t) => value.includes(t.tag_id));
     const toggle = (id: number) =>
         onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
     return (
         <div className="space-y-2">
-            <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={open}
-                        aria-label="Select tags"
-                        disabled={disabled}
-                        className="w-full justify-between font-normal"
-                    >
-                        <span className="truncate">
-                            {selected.length
-                                ? `${selected.length} tag${selected.length === 1 ? "" : "s"} selected`
-                                : "Select tags"}
-                        </span>
-                        <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden />
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContentInDialog
-                    className="w-[var(--radix-popover-trigger-width)] p-0"
-                    align="start"
-                >
+            <Button
+                type="button"
+                variant="outline"
+                aria-label="Select tags"
+                aria-expanded={open}
+                aria-controls={open ? panelId : undefined}
+                disabled={disabled}
+                onClick={toggleOpen}
+                className="w-full justify-between font-normal"
+            >
+                <span className="truncate">
+                    {selected.length
+                        ? `${selected.length} tag${selected.length === 1 ? "" : "s"} selected`
+                        : "Select tags"}
+                </span>
+                <ChevronDown
+                    className={cn("size-4 shrink-0 opacity-50 transition-transform", open && "rotate-180")}
+                    aria-hidden
+                />
+            </Button>
+
+            {open ? (
+                <div id={panelId} className="overflow-hidden rounded-md border">
                     <Command>
-                        <CommandInput placeholder="Search tags..." />
-                        <CommandList className="max-h-64">
+                        <CommandInput placeholder="Search tags..." autoFocus />
+                        <CommandList className="max-h-56">
                             <CommandEmpty>
                                 {loading ? (
                                     "Loading tags..."
@@ -127,10 +132,7 @@ export function TagMultiCombobox({
                                             type="button"
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => {
-                                                setError(null);
-                                                setAttempt((a) => a + 1);
-                                            }}
+                                            onClick={() => void loadTags()}
                                         >
                                             Retry
                                         </Button>
@@ -140,7 +142,7 @@ export function TagMultiCombobox({
                                 )}
                             </CommandEmpty>
                             <CommandGroup>
-                                {tags.map((tag) => (
+                                {(tags ?? []).map((tag) => (
                                     <CommandItem
                                         key={tag.tag_id}
                                         value={`${tag.tag_name} ${tag.tag_code}`}
@@ -164,8 +166,8 @@ export function TagMultiCombobox({
                             </CommandGroup>
                         </CommandList>
                     </Command>
-                </PopoverContentInDialog>
-            </Popover>
+                </div>
+            ) : null}
 
             {selected.length > 0 ? (
                 <div className="flex flex-wrap gap-1">

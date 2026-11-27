@@ -9,14 +9,15 @@ import {
     getAgentsPage,
     registerAgent as apiRegisterAgent,
     updateAgent as apiUpdateAgent,
+    type AgentStatusFilter,
 } from "../providers/agent-provider";
 
 function toMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Something went wrong";
 }
 
-export function useAgents(params: { page: number; limit: number; search?: string }) {
-    const { page, limit, search } = params;
+export function useAgents(params: { page: number; limit: number; search?: string; status?: AgentStatusFilter }) {
+    const { page, limit, search, status } = params;
     const [agents, setAgents] = useState<AgentView[]>([]);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -25,20 +26,20 @@ export function useAgents(params: { page: number; limit: number; search?: string
     /** Background reload after a write: keeps the last good page if it fails. */
     const sync = useCallback(async () => {
         try {
-            const result = await getAgentsPage({ page, limit, search });
+            const result = await getAgentsPage({ page, limit, search, status });
             setAgents(result.items);
             setTotal(result.total);
             setError(null);
         } catch {
             // the write already succeeded — keep the page we have
         }
-    }, [page, limit, search]);
+    }, [page, limit, search, status]);
 
     const refresh = useCallback(async () => {
         setIsLoading(true);
         setError(null);
         try {
-            const result = await getAgentsPage({ page, limit, search });
+            const result = await getAgentsPage({ page, limit, search, status });
             setAgents(result.items);
             setTotal(result.total);
         } catch (err) {
@@ -46,7 +47,7 @@ export function useAgents(params: { page: number; limit: number; search?: string
         } finally {
             setIsLoading(false);
         }
-    }, [page, limit, search]);
+    }, [page, limit, search, status]);
 
     useEffect(() => {
         void refresh();

@@ -45,6 +45,17 @@ function phNow(): string {
  */
 const STAGE_CAP = 100;
 
+/** A claim failure carrying the HTTP status the route should forward. */
+export class ClaimServiceError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status = 500) {
+    super(message);
+    this.name = "ClaimServiceError";
+    this.status = status;
+  }
+}
+
 /** Unwrap a Directus body, turning its `errors` array into a thrown Error. */
 function checked<T>(body: unknown, action: string): T {
   if (body === null) throw new Error(`Failed to ${action}`);
@@ -55,16 +66,32 @@ function checked<T>(body: unknown, action: string): T {
   return body as T;
 }
 
-async function nonTerminalStageIds(): Promise<number[]> {
+async function poolStageIds(includeClosed?: boolean): Promise<number[]> {
   const { data } = checked<{ data: Stage[] }>(
     await dFetch(`/items/telemarketing_stage?limit=${STAGE_CAP}&fields=stage_id,is_won,is_lost`),
     "load stages",
   );
-  return data.filter((stage) => !isTerminalStage(stage)).map((stage) => stage.stage_id);
+  return (includeClosed ? data : data.filter((stage) => !isTerminalStage(stage))).map(
+    (stage) => stage.stage_id,
+  );
 }
 
-/** Sort keys the pool listing understands. Code sorts in Directus; claimants sorts in memory after annotation. */
-export type PoolSort = "code" | "-code" | "claimants" | "-claimants";
+/** The target lead's stage, or null when the lead (or stage) is gone. */
+async function leadStage(leadId: number): Promise<Stage | null> {
+  const lead = checked<{ data: { stage_id: number } | null }>(
+    await dFetch(`/items/telemarketing_lead/${leadId}?fields=stage_id`),
+    "load lead",
+  ).data;
+  if (!lead) return null;
+  const stage = checked<{ data: Stage | null }>(
+    await dFetch(`/items/telemarketing_stage/${lead.stage_id}?fields=stage_id,is_won,is_lost`),
+    "load stage",
+  ).data;
+  return stage;
+}
+
+/** Sort keys the pool listing understands. Code and company sort in Directus; claimants sorts in memory after annotation. */
+export type PoolSort = "code" | "-code" | "company" | "-company" | "claimants" | "-claimants";
 
 export interface PoolFilters {
   agentId: number;
@@ -72,14 +99,16 @@ export interface PoolFilters {
   limit: number;
   search?: string;
   stageId?: number;
+  productId?: number;
   sort?: PoolSort;
+  includeClosed?: boolean;
 }
 
-/** Leads in non-terminal stages, annotated with the caller's claim state. */
+/** Pool leads, annotated with the caller's claim state. Closed stages are only listed when `includeClosed` is set. */
 export async function listPool(args: PoolFilters): Promise<PoolResult> {
   const page = Math.max(1, args.page || 1);
   const limit = Math.min(50, Math.max(1, args.limit || 10));
-  const stageIds = await nonTerminalStageIds();
+  const stageIds = await poolStageIds(args.includeClosed);
   if (stageIds.length === 0) {
     return { items: [], meta: { total: 0, page, limit } };
   }
@@ -93,6 +122,7 @@ export async function listPool(args: PoolFilters): Promise<PoolResult> {
     return { items: [], meta: { total: 0, page, limit } };
   }
   const clauses: Record<string, unknown>[] = [{ stage_id: { _in: effectiveStages } }];
+  if (args.productId !== undefined) clauses.push({ product_id: { _eq: args.productId } });
   const search = args.search?.trim();
   if (search) {
     clauses.push({
@@ -104,7 +134,11 @@ export async function listPool(args: PoolFilters): Promise<PoolResult> {
       ],
     });
   }
-  const sortParam = args.sort === "code" || args.sort === "-code" ? args.sort.replace("code", "lead_code") : "-created_at";
+  const sortKey = args.sort?.replace("-", "");
+  const sortColumn = sortKey === "code" ? "lead_code" : sortKey === "company" ? "company_name" : null;
+  const sortParam = sortColumn
+    ? `${args.sort?.startsWith("-") ? "-" : ""}${sortColumn}`
+    : "-created_at";
   const filter = encodeURIComponent(JSON.stringify(clauses.length === 1 ? clauses[0] : { _and: clauses }));
   const body = checked<{ data: LeadView[]; meta?: { filter_count?: number } }>(
     await dFetch(
@@ -155,6 +189,8 @@ async function findClaimRow(leadId: number, agentId: number): Promise<LeadAgent 
 }
 
 export async function claim(leadId: number, agentId: number, actorId: number | null = null): Promise<LeadAgent> {
+  const stage = await leadStage(leadId);
+  if (stage && isTerminalStage(stage)) throw new ClaimServiceError("Cannot claim a closed lead", 409);
   const now = phNow();
   const body = await dFetch("/items/telemarketing_lead_agent", {
     method: "POST",

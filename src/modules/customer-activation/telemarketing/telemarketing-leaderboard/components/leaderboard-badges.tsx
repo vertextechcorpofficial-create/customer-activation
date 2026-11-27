@@ -93,7 +93,7 @@ export function MomentumBadge({ row }: { row: LeaderboardRow }) {
     case "steady":
       return (
         <span
-          aria-label="steady: score unchanged versus the previous period"
+          aria-label="steady: within 0.8×–1.5× of the previous period"
           className={cn(pill, "border bg-muted text-muted-foreground")}
         >
           steady

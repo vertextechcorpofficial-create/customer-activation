@@ -68,6 +68,12 @@ export interface EnrichedAssetItem extends AssetItem {
 export interface HoldingRow extends AssignmentLine {
     customer_id: number | null;
     expected_return: string | null;
+    customer_code: string | null;
+    customer_name: string | null;
+}
+
+export interface AssetItemHistory extends AssetHistory {
+    customer_name: string | null;
 }
 
 export interface AssetItemDetail {
@@ -75,11 +81,16 @@ export interface AssetItemDetail {
     group_name: string | null;
     tags: AssetTag[];
     holdings: HoldingRow[];
-    history: AssetHistory[];
+    history: AssetItemHistory[];
     quantity_out: number;
     quantity_available: number;
     unit_value: number;
     lot_value: number;
+}
+
+export interface ItemHeader {
+    item_code: string;
+    name: string;
 }
 
 export interface Catalogs {
@@ -138,29 +149,126 @@ async function getOutstanding(itemId: number): Promise<HoldingRow[]> {
     return body.data ?? [];
 }
 
+export async function getItemHeader(id: number): Promise<ItemHeader | null> {
+    if (!Number.isInteger(id) || id <= 0) return null;
+    try {
+        const body = await directus<{ item_code: string; name: string }>(
+            `/items/${ITEM}/${id}?fields=id,item_code,name`,
+        );
+        const row = body.data;
+        if (!row) return null;
+        return { item_code: String(row.item_code ?? ""), name: String(row.name ?? "") };
+    } catch {
+        return null;
+    }
+}
+
+interface TaggingCustomerRow {
+    id: number;
+    customer_id: number | null;
+}
+
+interface CustomerRef {
+    id: number;
+    customer_code: string;
+    customer_name: string;
+}
+
+function payloadCustomerId(payload: unknown): number | null {
+    const source = typeof payload === "string" ? safeJson(payload) : payload;
+    if (!source || typeof source !== "object") return null;
+    const record = source as Record<string, unknown>;
+    const raw = record.customer_id ?? record.customerId;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function safeJson(value: string): unknown {
+    try {
+        return JSON.parse(value) as unknown;
+    } catch {
+        return null;
+    }
+}
+
+function historyCustomerId(
+    row: AssetHistory,
+    taggingCustomer: Map<number, number>,
+): number | null {
+    const fromPayload = payloadCustomerId(row.payload);
+    if (
+        row.reference_table === "customer_asset_tagging" &&
+        typeof row.reference_id === "number"
+    ) {
+        return taggingCustomer.get(row.reference_id) ?? fromPayload;
+    }
+    return fromPayload;
+}
+
 export async function getItem(id: number): Promise<AssetItemDetail | null> {
     const itemBody = await directus<AssetItem>(`/items/${ITEM}/${id}`);
     const item = itemBody.data;
     if (!item) return null;
-    const [itemTagBody, historyBody, taggingsBody, groupsBody, allTagsBody] = await Promise.all([
+    const [itemTagBody, historyBody, taggingsBody, groupsBody, allTagsBody, taggingCustomersBody] = await Promise.all([
         directus<AssetItemTag[]>(`/items/${ITEM_TAG}?limit=-1&filter[item_id][_eq]=${id}`),
         directus<AssetHistory[]>(`/items/${HISTORY}?limit=-1&filter[item_id][_eq]=${id}&sort=-occurred_at`),
         getOutstanding(id),
         directus<AssetGroup[]>(`/items/${GROUP}?limit=-1`),
         directus<AssetTag[]>(`/items/${TAG}?limit=-1`),
+        directus<TaggingCustomerRow[]>(
+            `/items/${TAGGING}?limit=-1&filter[item_id][_eq]=${id}&fields=id,customer_id`,
+        ),
     ]);
     const tagsById = new Map((allTagsBody.data ?? []).map((t) => [t.id, t]));
     const tags = (itemTagBody.data ?? [])
         .map((r) => tagsById.get(r.tag_id))
         .filter((t): t is AssetTag => Boolean(t));
-    const holdings = taggingsBody;
-    const history = historyBody.data ?? [];
-    const out = quantityOut(holdings);
+    const rawHoldings = taggingsBody;
+    const rawHistory = historyBody.data ?? [];
+    const out = quantityOut(rawHoldings);
     const cost = toNum(item.cost_per_item);
     const unit = unitValue({
         costPerItem: cost,
         lifeSpanMonths: item.life_span_months,
         dateAcquired: item.date_acquired.slice(0, 10),
+    });
+
+    // Attach customer names for the holders table and the history timeline.
+    // One batched customer fetch; grouping happens in JS (no N+1).
+    const taggingCustomer = new Map<number, number>();
+    for (const row of taggingCustomersBody.data ?? []) {
+        if (typeof row.id === "number" && typeof row.customer_id === "number" && row.customer_id > 0) {
+            taggingCustomer.set(row.id, row.customer_id);
+        }
+    }
+    const customerIds = new Set<number>();
+    for (const h of rawHoldings) {
+        if (typeof h.customer_id === "number" && h.customer_id > 0) customerIds.add(h.customer_id);
+    }
+    const historyCustomerIds = rawHistory.map((row) => historyCustomerId(row, taggingCustomer));
+    for (const cid of historyCustomerIds) {
+        if (cid !== null) customerIds.add(cid);
+    }
+    const customerById = new Map<number, CustomerRef>();
+    if (customerIds.size > 0) {
+        const customersBody = await directus<CustomerRef[]>(
+            `/items/customer?limit=-1&filter[id][_in]=${[...customerIds].join(",")}&fields=id,customer_code,customer_name`,
+        ).catch(() => ({ data: [] as CustomerRef[] }));
+        for (const customer of customersBody.data ?? []) {
+            customerById.set(customer.id, customer);
+        }
+    }
+    const holdings: HoldingRow[] = rawHoldings.map((h) => {
+        const customer = h.customer_id != null ? customerById.get(h.customer_id) : undefined;
+        return {
+            ...h,
+            customer_code: customer?.customer_code ?? null,
+            customer_name: customer?.customer_name ?? null,
+        };
+    });
+    const history: AssetItemHistory[] = rawHistory.map((row, index) => {
+        const cid = historyCustomerIds[index] ?? null;
+        return { ...row, customer_name: cid != null ? (customerById.get(cid)?.customer_name ?? null) : null };
     });
     return {
         item,
@@ -172,7 +280,7 @@ export async function getItem(id: number): Promise<AssetItemDetail | null> {
         holdings,
         history,
         quantity_out: out,
-        quantity_available: quantityAvailable(item.quantity, holdings),
+        quantity_available: quantityAvailable(item.quantity, rawHoldings),
         unit_value: unit,
         lot_value: Math.round(unit * item.quantity * 100) / 100,
     };

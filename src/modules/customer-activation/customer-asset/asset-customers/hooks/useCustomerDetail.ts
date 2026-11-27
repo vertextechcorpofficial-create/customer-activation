@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { assetCustomersRoutes } from "../routes";
 import type { ApiEnvelope } from "../types/api";
-import type { Note } from "../types/asset-customers.schema";
+import type { NoteWithPreview } from "../types/asset-customers.schema";
 import type { CustomerDetail } from "../services/asset-customers-service";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -51,7 +51,7 @@ export function useCustomerDetail(id: number) {
     const syncNotes = useCallback(async () => {
         try {
             const params = new URLSearchParams({ customerId: String(id) });
-            const notes = await request<Note[]>(`${assetCustomersRoutes.notes}?${params.toString()}`);
+            const notes = await request<NoteWithPreview[]>(`${assetCustomersRoutes.notes}?${params.toString()}`);
             setDetail((d) => (d ? { ...d, notes } : d));
         } catch {
             // The write already succeeded — keep the last good notes.
@@ -61,7 +61,7 @@ export function useCustomerDetail(id: number) {
     const addNote = useCallback(
         async (body: string): Promise<boolean> => {
             try {
-                const note = await request<Note>(assetCustomersRoutes.notes, {
+                const note = await request<NoteWithPreview>(assetCustomersRoutes.notes, {
                     method: "POST",
                     body: JSON.stringify({ customer_id: id, body }),
                 });

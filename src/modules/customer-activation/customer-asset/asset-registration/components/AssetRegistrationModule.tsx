@@ -333,7 +333,7 @@ export function AssetRegistrationModule() {
                     <SelectItem value="fully-out">Fully out</SelectItem>
                 </SelectContent>
             </Select>
-            <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Label className="flex h-8 shrink-0 items-center gap-2 rounded-md border bg-background px-2.5 text-xs">
                 <Switch checked={showRetired} onCheckedChange={setShowRetired} aria-label="Show retired assets" />
                 Retired
             </Label>
@@ -382,8 +382,6 @@ export function AssetRegistrationModule() {
 
             <div ref={tableWrapRef} onClick={handleTableClick} onKeyDown={handleTableKeyDown}>
             <AssetListShell
-                title="Assets"
-                description="Every registered asset with live stock and depreciated value."
                 columns={columns}
                 data={filtered}
                 isLoading={isLoading}

@@ -34,7 +34,7 @@ export default async function PipelineLeadPage({
   const payload = token ? decodeJwtPayload(token) : null;
 
   return (
-    <PipelineShell user={headerUser(payload)} crumb="Lead" active="leads">
+    <PipelineShell user={headerUser(payload)} crumb="Lead">
       {Number.isInteger(leadId) && leadId > 0 ? (
         <LeadDetailView leadId={leadId} />
       ) : (

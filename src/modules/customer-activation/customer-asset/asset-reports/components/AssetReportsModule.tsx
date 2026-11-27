@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
     Dialog,
     DialogClose,
@@ -17,6 +19,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DataTable } from "@/components/ui/new-data-table";
 import {
     Select,
     SelectContent,
@@ -37,6 +40,9 @@ import { RefreshCwIcon, ChevronRight } from "lucide-react";
 import { StatusPill } from "./StatusPill";
 import { useAssetReports } from "../hooks/useAssetReports";
 import type { AssetReportRow } from "../types/asset-reports.schema";
+import styles from "./report-table.module.css";
+
+type Row = AssetReportRow;
 
 function isRetired(value: AssetReportRow["is_retired"]): boolean {
     return value === true || value === 1;
@@ -127,6 +133,137 @@ export function AssetReportsModule() {
         setUnit("months");
     };
 
+    const columns: ColumnDef<Row>[] = [
+        {
+            accessorKey: "item_code",
+            header: "Code",
+            cell: ({ row }) => (
+                <span data-item-id={row.original.item_id}>
+                    <Link
+                        href={`/customer-activation/customer-asset/asset-reports/${row.original.item_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums underline-offset-4 hover:underline"
+                        title={row.original.item_code}
+                    >
+                        {row.original.item_code}
+                    </Link>
+                </span>
+            ),
+        },
+        {
+            accessorKey: "name",
+            header: "Name",
+            cell: ({ row }) => (
+                <Link
+                    href={`/customer-activation/customer-asset/asset-reports/${row.original.item_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="block max-w-56 truncate font-medium underline-offset-4 hover:underline"
+                    title={row.original.name}
+                >
+                    {row.original.name}
+                </Link>
+            ),
+        },
+        {
+            accessorKey: "quantity",
+            header: () => <span className="block text-right">Qty</span>,
+            cell: ({ row }) => <span className="block td-num">{row.original.quantity}</span>,
+        },
+        {
+            accessorKey: "last_purchase_at",
+            header: "Last purchase",
+            cell: ({ row }) => (
+                <span
+                    className="block max-w-44 truncate whitespace-nowrap text-sm tabular-nums text-muted-foreground"
+                    title={row.original.last_purchase_at}
+                >
+                    {formatStamp(row.original.last_purchase_at)}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "unit_value",
+            header: () => <span className="block text-right">Unit value</span>,
+            cell: ({ row }) => (
+                <span className="block whitespace-nowrap td-num">
+                    {formatPeso(row.original.unit_value)}
+                </span>
+            ),
+        },
+        {
+            accessorKey: "total_value",
+            header: () => <span className="block text-right">Total value</span>,
+            cell: ({ row }) => (
+                <span className="block whitespace-nowrap td-num font-medium">
+                    {formatPeso(row.original.total_value)}
+                </span>
+            ),
+        },
+        {
+            id: "status",
+            header: "Status",
+            cell: ({ row }) =>
+                isRetired(row.original.is_retired) ? (
+                    <StatusPill tone="neutral" className="shrink-0">Retired</StatusPill>
+                ) : (
+                    <StatusPill tone="success" className="shrink-0">Active</StatusPill>
+                ),
+        },
+        {
+            id: "holders",
+            header: "Holders",
+            cell: ({ row }) =>
+                row.original.holders.length > 0 ? (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`View holders for ${row.original.name}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setHoldersFor(row.original);
+                        }}
+                        className="h-8 shrink-0 whitespace-nowrap px-2 text-xs"
+                    >
+                        {row.original.holders.length} customer{row.original.holders.length === 1 ? "" : "s"}
+                    </Button>
+                ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                ),
+        },
+        {
+            id: "details",
+            header: () => <span className="sr-only">Details</span>,
+            cell: () => (
+                <span className="inline-flex">
+                    <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+                    <span className="sr-only">Details</span>
+                </span>
+            ),
+        },
+    ];
+
+    const handleRowClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+        // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const anchor = (event.target as HTMLElement).closest("[data-item-id]");
+        if (!anchor) return;
+        const id = Number(anchor.getAttribute("data-item-id"));
+        if (!Number.isFinite(id)) return;
+        router.push(`/customer-activation/customer-asset/asset-reports/${id}`);
+    };
+
+    const handleRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if ((event.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
+        const anchor = (event.target as HTMLElement).closest("[data-item-id]");
+        if (!anchor) return;
+        const id = Number(anchor.getAttribute("data-item-id"));
+        if (!Number.isFinite(id)) return;
+        if (event.key === " ") event.preventDefault();
+        router.push(`/customer-activation/customer-asset/asset-reports/${id}`);
+    };
+
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
             <header className="grid gap-1">
@@ -144,14 +281,8 @@ export function AssetReportsModule() {
                 </p>
             </header>
 
-            <Card className="overflow-hidden rounded-2xl border-border/50">
-                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between space-y-0">
-                    <div className="min-w-0 space-y-1">
-                        <CardTitle className="truncate">All assets</CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                            Showing {filtered.length} of {rows.length}.
-                        </p>
-                    </div>
+            <Card className="gap-0 overflow-hidden rounded-2xl border-border/50 py-0">
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 px-6 py-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Report date projection">
                             <ToggleGroup
@@ -231,160 +362,40 @@ export function AssetReportsModule() {
                                 Clear filters
                             </Button>
                         ) : null}
+                    </div>
+                    <div className="flex shrink-0 items-center">
                         <Button variant="outline" size="sm" onClick={() => refresh()} aria-label="Refresh report" className="shrink-0">
                             <RefreshCwIcon className="size-4 shrink-0" aria-hidden />
                             <span className="whitespace-nowrap">Refresh</span>
                         </Button>
                     </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
                     {error ? (
-                        <div className="px-6 pt-6">
+                        <div className="pt-2 pb-4">
                             <Alert variant="destructive">
                                 <AlertTitle>Could not load</AlertTitle>
                                 <AlertDescription>{error}</AlertDescription>
                             </Alert>
                         </div>
                     ) : null}
-                    <div className="overflow-x-auto">
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="bg-muted/10">
-                                    <TableHead className="py-2 font-bold">Code</TableHead>
-                                    <TableHead className="py-2 font-bold">Name</TableHead>
-                                    <TableHead className="py-2 text-right font-bold">Qty</TableHead>
-                                    <TableHead className="py-2 font-bold">Last purchase</TableHead>
-                                    <TableHead className="py-2 text-right font-bold">Unit value</TableHead>
-                                    <TableHead className="py-2 text-right font-bold">Total value</TableHead>
-                                    <TableHead className="py-2 font-bold">Status</TableHead>
-                                    <TableHead className="py-2 font-bold">Holders</TableHead>
-                                    <TableHead className="w-8">
-                                        <span className="sr-only">Details</span>
-                                    </TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {isLoading && filtered.length === 0 ? (
-                                    Array.from({ length: 5 }).map((_, rowIndex) => (
-                                        <TableRow key={rowIndex} className="hover:bg-transparent">
-                                            {Array.from({ length: 9 }).map((__, colIndex) => (
-                                                <TableCell key={colIndex} className="py-2">
-                                                    <div className="h-4 animate-pulse rounded bg-muted" />
-                                                </TableCell>
-                                            ))}
-                                        </TableRow>
-                                    ))
-                                ) : filtered.length > 0 ? (
-                                    filtered.map((row) => (
-                                        <TableRow
-                                            key={row.item_id}
-                                            className="cursor-pointer transition-colors hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-                                            onClick={(e) => {
-                                                // WHY: ignore clicks on nested controls only; Radix dialogs portal to <body> so they never bubble into rows — no dialog clause needed.
-                                                if ((e.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
-                                                router.push(`/customer-activation/customer-asset/asset-reports/${row.item_id}`);
-                                            }}
-                                            onKeyDown={(e) => {
-                                                if ((e.target as HTMLElement).closest('a,button,input,select,textarea,label,[role="menuitem"]')) return;
-                                                if (e.key === "Enter") {
-                                                    router.push(`/customer-activation/customer-asset/asset-reports/${row.item_id}`);
-                                                }
-                                                if (e.key === " ") {
-                                                    e.preventDefault();
-                                                    router.push(`/customer-activation/customer-asset/asset-reports/${row.item_id}`);
-                                                }
-                                            }}
-                                            tabIndex={0}
-                                            role="button"
-                                            aria-label={`View asset report for ${row.name}`}
-                                        >
-                                            <TableCell className="py-2">
-                                                <Link
-                                                    href={`/customer-activation/customer-asset/asset-reports/${row.item_id}`}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="block max-w-40 truncate whitespace-nowrap font-mono text-xs tabular-nums underline-offset-4 hover:underline"
-                                                    title={row.item_code}
-                                                >
-                                                    {row.item_code}
-                                                </Link>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <Link
-                                                    href={`/customer-activation/customer-asset/asset-reports/${row.item_id}`}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="block max-w-56 truncate font-medium underline-offset-4 hover:underline"
-                                                    title={row.name}
-                                                >
-                                                    {row.name}
-                                                </Link>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <span className="block td-num">{row.quantity}</span>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <span
-                                                    className="block max-w-44 truncate whitespace-nowrap text-sm tabular-nums text-muted-foreground"
-                                                    title={row.last_purchase_at}
-                                                >
-                                                    {formatStamp(row.last_purchase_at)}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <span className="block whitespace-nowrap td-num">
-                                                    {formatPeso(row.unit_value)}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <span className="block whitespace-nowrap td-num font-medium">
-                                                    {formatPeso(row.total_value)}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                {isRetired(row.is_retired) ? (
-                                                    <StatusPill tone="neutral" className="shrink-0">Retired</StatusPill>
-                                                ) : (
-                                                    <StatusPill tone="success" className="shrink-0">Active</StatusPill>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                {row.holders.length > 0 ? (
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        aria-label={`View holders for ${row.name}`}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setHoldersFor(row);
-                                                        }}
-                                                        className="h-8 shrink-0 whitespace-nowrap px-2 text-xs"
-                                                    >
-                                                        {row.holders.length} customer{row.holders.length === 1 ? "" : "s"}
-                                                    </Button>
-                                                ) : (
-                                                    <span className="text-sm text-muted-foreground">—</span>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="w-8 pr-4">
-                                                <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={9} className="h-24 text-center">
-                                            <p className="font-medium">No assets found</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {rows.length === 0
-                                                    ? "Assets appear here once items are registered."
-                                                    : "Try a different search or clear the filters."}
-                                            </p>
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
+                <div
+                    className={styles.hideColumnMenu}
+                    onClick={handleRowClick}
+                    onKeyDown={handleRowKeyDown}
+                >
+                    <DataTable
+                        columns={columns}
+                        data={filtered}
+                        isLoading={isLoading}
+                        emptyTitle="No assets found"
+                        emptyDescription={
+                            rows.length === 0
+                                ? "Assets appear here once items are registered."
+                                : "Try a different search or clear the filters."
+                        }
+                    />
+                </div>
                 </CardContent>
             </Card>
 

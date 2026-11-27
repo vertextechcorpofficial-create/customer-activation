@@ -94,21 +94,29 @@ export interface AgentPage {
  * the whole collection and would make the pager lie.
  */
 export async function listAgents(
-    opts: { page?: number; limit?: number; search?: string } = {},
+    opts: { page?: number; limit?: number; search?: string; status?: "all" | "active" | "inactive" } = {},
 ): Promise<AgentPage> {
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
     const search = opts.search?.trim() ?? "";
-    const filter = search
-        ? `&filter=${encodeURIComponent(
-              JSON.stringify({
-                  _or: [
-                      { display_name: { _icontains: search } },
-                      { agent_code: { _icontains: search } },
-                  ],
-              }),
-          )}`
-        : "";
+    const status = opts.status ?? "all";
+    const conditions: Array<Record<string, unknown>> = [];
+    if (search) {
+        conditions.push({
+            _or: [
+                { display_name: { _icontains: search } },
+                { agent_code: { _icontains: search } },
+            ],
+        });
+    }
+    if (status === "active") conditions.push({ is_active: { _eq: 1 } });
+    else if (status === "inactive") conditions.push({ is_active: { _eq: 0 } });
+    const filter =
+        conditions.length === 0
+            ? ""
+            : conditions.length === 1
+              ? `&filter=${encodeURIComponent(JSON.stringify(conditions[0]))}`
+              : `&filter=${encodeURIComponent(JSON.stringify({ _and: conditions }))}`;
 
     const body = await request<Agent[]>(
         `/items/${AGENTS}?fields=*&sort=agent_id&limit=${limit}&offset=${(page - 1) * limit}&meta=filter_count${filter}`,
@@ -152,15 +160,24 @@ export async function listAgents(
 /**
  * Search READ-ONLY `user` rows for the registration combobox.
  * Never creates or modifies a user.
+ *
+ * Paged: `limit` caps a single page (50), `offset` walks the collection, so
+ * every user stays reachable however large `user` grows. The sort carries
+ * `user_id` as a tiebreaker — `user_fname` alone is not unique, and unstable
+ * ordering makes offset pages skip or repeat rows.
  */
-export async function listSelectableUsers(search: string, limit: number): Promise<UserOption[]> {
-    const take = Math.min(50, Math.max(1, limit || 20));
+export async function listSelectableUsers(
+    search: string,
+    opts: { limit?: number; offset?: number } = {},
+): Promise<UserOption[]> {
+    const take = Math.min(50, Math.max(1, opts.limit ?? 50));
+    const skip = Math.max(0, opts.offset ?? 0);
     const q = search.trim();
     const filter = q
         ? `&filter=${encodeURIComponent(JSON.stringify({ _or: [{ user_fname: { _icontains: q } }, { user_lname: { _icontains: q } }, { user_email: { _icontains: q } }] }))}`
         : "";
     const body = await request<UserRow[]>(
-        `/items/${USERS}?fields=user_id,user_fname,user_lname,user_email&sort=user_fname&limit=${take}${filter}`,
+        `/items/${USERS}?fields=user_id,user_fname,user_lname,user_email&sort=user_fname,user_id&limit=${take}&offset=${skip}${filter}`,
     );
     return (body.data ?? []).map((row) => ({
         user_id: row.user_id,

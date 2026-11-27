@@ -2,8 +2,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { ReactNode } from "react";
 
 export interface ListShellProps<T> {
-    title: string;
-    description?: string;
     columns: ColumnDef<T, unknown>[];
     data: T[];
     isLoading?: boolean;

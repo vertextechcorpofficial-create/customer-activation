@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, UserMinus, UserPlus, Users } from "lucide-react";
+import { Loader2, RefreshCw, UserMinus, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "./status-pill";
 import { useClaims } from "../hooks/use-claims";
@@ -36,7 +35,7 @@ function formatClaimedAt(value: string): string {
 
 /** Who is working this lead — claim or release it for the signed-in agent. */
 export function ClaimPanel({ leadId }: { leadId: number }) {
-  const { agentId, claimants, isLoading, error, claim, release } = useClaims(leadId);
+  const { agentId, claimants, isLoading, error, refresh, claim, release } = useClaims(leadId);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mine = agentId !== null && claimants.some((c) => c.agent_id === agentId);
@@ -51,15 +50,15 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
   };
 
   return (
-    <Card>
+    <Card className="border-border/70 bg-card shadow-none">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
-            Claimants
+          <h2 className="flex items-center gap-2 font-semibold leading-none">
+            Claim
             <StatusPill tone="neutral" className="rounded-full tabular-nums">
               {claimants.length}
             </StatusPill>
-          </CardTitle>
+          </h2>
           <CardDescription>
             Several agents can work the same lead. Claiming never takes it out of the pool — only a
             terminal stage does.
@@ -89,25 +88,17 @@ export function ClaimPanel({ leadId }: { leadId: number }) {
             ))}
           </div>
         ) : error ? (
-          <p className="py-6 text-center text-sm text-destructive" role="alert">
-            {error}
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+            <Button size="sm" variant="outline" onClick={() => void refresh()}>
+              <RefreshCw className="size-4" aria-hidden />
+              Retry
+            </Button>
+          </div>
         ) : claimants.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Users />
-              </EmptyMedia>
-              <EmptyTitle>No one has claimed this lead</EmptyTitle>
-              <EmptyDescription>Claim it to start working it. Other agents can join you later.</EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={handleToggle} disabled={isSubmitting} className="min-h-11 md:min-h-0">
-                <UserPlus className="size-4" aria-hidden />
-                Claim this lead
-              </Button>
-            </EmptyContent>
-          </Empty>
+          <p className="text-sm text-muted-foreground">Unclaimed — claim to start work.</p>
         ) : (
           <ul className="divide-y divide-border">
             {claimants.map((claimant) => {

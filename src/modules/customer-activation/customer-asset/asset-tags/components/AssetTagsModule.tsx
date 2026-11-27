@@ -239,8 +239,6 @@ export function AssetTagsModule() {
 
             <div ref={listRef} onClick={handleRowClick} onKeyDown={handleRowKeyDown}>
             <AssetTagsListShell
-                title="Asset tags"
-                description="Colour-coded labels for customer assets. Archived asset tags stay on past assets."
                 columns={columns}
                 data={filteredTags}
                 isLoading={isLoading}

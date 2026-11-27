@@ -30,6 +30,8 @@ export const ProspectSchema = z.object({
     industry: z.string().max(128).nullable().optional(),
     product_interest: z.string().max(191).nullable().optional(),
     need: z.string().nullable().optional(),
+    /** One product per prospect. Null on historical rows. */
+    product_id: z.number().int().positive().nullable().optional(),
     prospect_status: ProspectStatusSchema,
     converted_customer_id: z.number().int().nullable().optional(),
     converted_at: PhTimestampSchema.nullable().optional(),
@@ -56,6 +58,7 @@ export const ProspectCreateSchema = z
         industry: z.string().trim().max(128).nullish(),
         product_interest: z.string().trim().max(191).nullish(),
         need: z.string().trim().nullish(),
+        product_id: z.number().int().positive().nullable().optional(),
     })
     .refine((v) => (v.mobile?.trim() ?? "") !== "" || (v.email?.trim() ?? "") !== "", {
         message: "Mobile or email is required",
@@ -77,6 +80,7 @@ export const ProspectUpdateSchema = z
         industry: z.string().trim().max(128).nullable().optional(),
         product_interest: z.string().trim().max(191).nullable().optional(),
         need: z.string().trim().nullable().optional(),
+        product_id: z.number().int().positive().nullable().optional(),
         prospect_status: z.enum(["new", "contacted", "qualified", "rejected"]).optional(),
     })
     .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });

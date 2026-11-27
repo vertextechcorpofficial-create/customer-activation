@@ -1,18 +1,23 @@
 "use client";
 
+import type { ReactNode } from "react";
+import Link from "next/link";
 import { useState } from "react";
-import { ChevronRight, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+    AlertTriangle,
+    ArrowUpRight,
+    Boxes,
+    Building2,
+    CheckCircle2,
+    ChevronRight,
+    History,
+    Package,
+    Plus,
+    RefreshCw,
+    StickyNote,
+    Undo2,
+} from "lucide-react";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -35,17 +40,22 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { useCustomerDetail } from "../hooks/useCustomerDetail";
 import type { AssignmentRecord, Holding } from "../services/asset-customers-service";
-import type { Note } from "../types/asset-customers.schema";
+import { BackButton } from "./BackButton";
+import { RichTextEditor } from "./RichTextEditor";
 import { StatusPill } from "./StatusPill";
+import { formatHuman } from "../utils/datetime";
 
 const DAY_MS = 86_400_000;
 
-function formatStamp(value: string | null): string {
-    if (!value) return "—";
-    return value.length >= 16 ? `${value.slice(0, 10)} ${value.slice(11, 16)}` : value;
+// Plain-text check for rich-text validation (mirrors the server preview strip).
+function stripHtml(html: string): string {
+    return html
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function formatDate(value: string | null): string {
@@ -69,6 +79,14 @@ function assignmentLabel(status: string): string {
 
 function holdingTone(status: string): "info" | "warning" {
     return status.toLowerCase() === "open" ? "info" : "warning";
+}
+
+function viewingTone(status: string): "info" | "warning" | "success" | "neutral" {
+    const s = status.toLowerCase();
+    if (s === "open") return "info";
+    if (s === "partial") return "warning";
+    if (s === "returned") return "success";
+    return "neutral";
 }
 
 function monogram(name: string): string {
@@ -108,63 +126,53 @@ function attentionLine(h: Holding, now: number): { text: string; late: boolean }
     return { text: `due in ${diffDays}d`, late: false };
 }
 
-function KpiCard({ label, value, sub, subDestructive = false, className = "" }: {
+function KpiCard({ label, value, icon, iconClass, toneClass, className = "", children }: {
     label: string;
     value: string;
-    sub: string;
-    subDestructive?: boolean;
+    icon: ReactNode;
+    iconClass: string;
+    toneClass: string;
     className?: string;
+    children: ReactNode;
 }) {
     return (
-        <Card className={`shadow-none border-border ${className}`.trimEnd()}>
+        <Card className={`shadow-none border border-border/60 dark:border-border ${toneClass} ${className}`.trimEnd()}>
             <CardContent className="space-y-1 p-3 sm:p-4">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <span
+                        aria-hidden
+                        className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${iconClass}`}
+                    >
+                        {icon}
+                    </span>
+                </div>
                 <p className="text-2xl font-semibold tabular-nums">{value}</p>
-                <p className={`text-xs ${subDestructive ? "text-destructive" : "text-muted-foreground"}`}>
-                    {sub}
-                </p>
+                <div className="text-xs text-muted-foreground">{children}</div>
             </CardContent>
         </Card>
     );
 }
 
 export function CustomerDashboard({ id }: { id: number }) {
-    const { detail, isLoading, error, refresh, addNote, editNote, removeNote } = useCustomerDetail(id);
+    const { detail, isLoading, error, refresh, addNote } = useCustomerDetail(id);
     const [draft, setDraft] = useState("");
     const [saving, setSaving] = useState(false);
-    const [editing, setEditing] = useState<Note | null>(null);
-    const [editBody, setEditBody] = useState("");
-    const [deleting, setDeleting] = useState<Note | null>(null);
-    const [busy, setBusy] = useState(false);
     const [now] = useState(() => Date.now());
     const [noteOpen, setNoteOpen] = useState(false);
     const [viewing, setViewing] = useState<AssignmentRecord | null>(null);
 
+    const draftHasText = stripHtml(draft).length > 0;
+
     const submitDraft = async () => {
-        if (!draft.trim() || saving) return;
+        if (!draftHasText || saving) return;
         setSaving(true);
-        const ok = await addNote(draft.trim());
+        const ok = await addNote(draft);
         setSaving(false);
         if (ok) {
             setDraft("");
             setNoteOpen(false);
         }
-    };
-
-    const submitEdit = async () => {
-        if (!editing || !editBody.trim() || busy) return;
-        setBusy(true);
-        const ok = await editNote(editing.id, editBody.trim());
-        setBusy(false);
-        if (ok) setEditing(null);
-    };
-
-    const confirmDelete = async () => {
-        if (!deleting || busy) return;
-        setBusy(true);
-        const ok = await removeNote(deleting.id);
-        setBusy(false);
-        if (ok) setDeleting(null);
     };
 
     if (isLoading) {
@@ -187,6 +195,9 @@ export function CustomerDashboard({ id }: { id: number }) {
     if (error || !detail) {
         return (
             <div className="mx-auto w-full max-w-[1600px]">
+                <div className="mb-3">
+                    <BackButton fallbackHref="/customer-activation/customer-asset/asset-customers" />
+                </div>
                 <Alert variant="destructive">
                     <AlertTitle>Could not load customer</AlertTitle>
                     <AlertDescription>{error ?? "Customer not found."}</AlertDescription>
@@ -243,25 +254,28 @@ export function CustomerDashboard({ id }: { id: number }) {
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-4">
+            <div className="mb-3">
+                <BackButton fallbackHref="/customer-activation/customer-asset/asset-customers" />
+            </div>
             {/* 1. Hero */}
-            <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="overflow-hidden rounded-2xl border border-primary/15 bg-primary/[0.04] dark:border-primary/20 dark:bg-primary/[0.08]">
                 <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                         <div
                             aria-hidden
-                            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold text-primary"
+                            className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-lg font-semibold text-primary-foreground"
                         >
                             {monogram(customer.customer_name)}
                         </div>
                         <div className="min-w-0">
                             <h1
-                                className="line-clamp-2 text-xl font-semibold tracking-tight leading-tight sm:text-2xl"
+                                className="line-clamp-2 text-xl font-semibold tracking-tight leading-tight break-words sm:text-2xl"
                                 title={customer.customer_name}
                             >
                                 {customer.customer_name}
                             </h1>
                             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="font-mono text-xs text-muted-foreground" title={customer.customer_code}>
+                                <span className="rounded-md border border-border bg-background/70 px-2 py-0.5 font-mono text-xs tabular-nums" title={customer.customer_code}>
                                     {customer.customer_code}
                                 </span>
                                 {customer.isActive ? (
@@ -275,8 +289,9 @@ export function CustomerDashboard({ id }: { id: number }) {
                                     </StatusPill>
                                 )}
                             </div>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                Read-only — customer records belong to another module
+                            <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <Building2 className="size-3 shrink-0" aria-hidden />
+                                Customer record (read-only)
                             </p>
                         </div>
                     </div>
@@ -291,25 +306,45 @@ export function CustomerDashboard({ id }: { id: number }) {
                 <KpiCard
                     label="Units held"
                     value={String(assetsHeld)}
-                    sub={`across ${distinctItems} item${distinctItems === 1 ? "" : "s"}`}
-                />
+                    icon={<Boxes className="size-4" aria-hidden />}
+                    iconClass="border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+                    toneClass="bg-blue-50/50 border-t-2 border-t-blue-400 dark:bg-blue-950/20 dark:border-t-blue-800"
+                >
+                    across {distinctItems} item{distinctItems === 1 ? "" : "s"}
+                </KpiCard>
                 <KpiCard
                     label="Open assignments"
                     value={String(openAssignments)}
-                    sub={overdueCount > 0 ? `${overdueCount} overdue` : "All on schedule"}
-                    subDestructive={overdueCount > 0}
-                />
+                    icon={<ArrowUpRight className="size-4" aria-hidden />}
+                    iconClass="border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                    toneClass="bg-amber-50/50 border-t-2 border-t-amber-400 dark:bg-amber-950/20 dark:border-t-amber-800"
+                >
+                    {overdueCount > 0 ? (
+                        <span className="font-semibold text-rose-700 dark:text-rose-300">
+                            {overdueCount} overdue
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1">
+                            <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                            All on schedule
+                        </span>
+                    )}
+                </KpiCard>
                 <KpiCard
                     label="Returns"
                     value={`${returnedCount}/${history.length}`}
-                    sub={nextReturnLabel}
+                    icon={<Undo2 className="size-4" aria-hidden />}
+                    iconClass="border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    toneClass={overdueCount > 0 ? "bg-rose-50/50 border-t-2 border-t-rose-400 dark:bg-rose-950/20 dark:border-t-rose-800" : "bg-emerald-50/50 border-t-2 border-t-emerald-400 dark:bg-emerald-950/20 dark:border-t-emerald-800"}
                     className="col-span-2 sm:col-span-1"
-                />
+                >
+                    {nextReturnLabel}
+                </KpiCard>
             </div>
 
             {/* 3. Top row: holdings + attention */}
             <div className="grid gap-3 lg:grid-cols-3 items-start">
-                <Card className="shadow-none border-border overflow-hidden lg:col-span-2">
+                <Card className="shadow-none border-border/70 bg-card overflow-hidden lg:col-span-2 dark:border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between gap-2">
                             <h2 className="leading-none font-semibold">Current holdings</h2>
@@ -340,26 +375,53 @@ export function CustomerDashboard({ id }: { id: number }) {
                                             key={h.taggingId}
                                             className="flex flex-col gap-1.5 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
                                         >
-                                            <div className="min-w-0 flex-1">
-                                                <p className="truncate font-medium" title={h.itemName}>
-                                                    {h.itemName}
-                                                </p>
-                                                <p className="truncate font-mono text-xs text-muted-foreground tabular-nums" title={h.itemCode}>
-                                                    {h.itemCode}
-                                                </p>
+                                            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                                <span
+                                                    aria-hidden
+                                                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+                                                >
+                                                    <Package className="size-4" />
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="truncate font-medium" title={h.itemName}>
+                                                        {h.itemName}
+                                                    </p>
+                                                    <p className="truncate font-mono text-xs text-muted-foreground tabular-nums" title={h.itemCode}>
+                                                        {h.itemCode}
+                                                    </p>
+                                                    {h.tags.length > 0 && (
+                                                        <span className="mt-1 flex items-center gap-1">
+                                                            {h.tags.slice(0, 3).map((tag) => (
+                                                                <span
+                                                                    key={tag.id}
+                                                                    role="img"
+                                                                    aria-label={tag.tag_name}
+                                                                    title={tag.tag_name}
+                                                                    className="size-2.5 rounded-full border border-border"
+                                                                    style={{ backgroundColor: tag.color ?? "transparent" }}
+                                                                />
+                                                            ))}
+                                                            {h.tags.length > 3 && (
+                                                                <span className="text-[11px] text-muted-foreground tabular-nums">
+                                                                    +{h.tags.length - 3}
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="flex shrink-0 flex-wrap items-center gap-2">
                                                 <StatusPill tone={holdingTone(h.status)}>
                                                     {assignmentLabel(h.status)}
                                                 </StatusPill>
-                                                <span className="rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                                                <span className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-xs tabular-nums">
                                                     ×{h.held}{h.held !== h.quantity ? `/${h.quantity}` : ""}
                                                 </span>
                                                 <span
                                                     className={`text-xs tabular-nums ${late ? "text-destructive" : "text-muted-foreground"}`}
                                                     title={h.expectedReturnAt ?? ""}
                                                 >
-                                                    {formatStamp(h.expectedReturnAt)}
+                                                    {formatHuman(h.expectedReturnAt)}
                                                 </span>
                                             </div>
                                         </li>
@@ -370,13 +432,29 @@ export function CustomerDashboard({ id }: { id: number }) {
                     </CardContent>
                 </Card>
 
-                <Card className="shadow-none border-border">
+                <Card className="shadow-none border-amber-200/60 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/10">
                     <CardHeader>
-                        <h2 className="leading-none font-semibold">Needs attention</h2>
+                        <div className="flex items-center gap-2">
+                            <span
+                                aria-hidden
+                                className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                            >
+                                <AlertTriangle className="size-4" />
+                            </span>
+                            <h2 className="leading-none font-semibold">Needs attention</h2>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         {needsAttention.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Nothing overdue.</p>
+                            <div className="flex items-center gap-2">
+                                <span
+                                    aria-hidden
+                                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                >
+                                    <CheckCircle2 className="size-4" />
+                                </span>
+                                <p className="text-sm text-muted-foreground">Nothing overdue</p>
+                            </div>
                         ) : (
                             <ul className="space-y-2.5">
                                 {needsAttention.map((h) => {
@@ -387,7 +465,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                                                 {h.itemName}
                                             </span>
                                             <span
-                                                className={`shrink-0 text-xs tabular-nums ${line.late ? "text-destructive" : "text-muted-foreground"}`}
+                                                className={`shrink-0 text-xs tabular-nums ${line.late ? "font-semibold text-rose-700 dark:text-rose-300" : "text-amber-800 dark:text-amber-300"}`}
                                             >
                                                 {line.text}
                                             </span>
@@ -402,11 +480,14 @@ export function CustomerDashboard({ id }: { id: number }) {
 
             {/* 4. Bottom row: history + notes */}
             <div className="grid gap-3 lg:grid-cols-3 items-start">
-            <Card className="shadow-none border-border overflow-hidden lg:col-span-2">
+            <Card className="shadow-none border-border/70 bg-card overflow-hidden lg:col-span-2 dark:border-border">
                 <CardHeader>
                     <div className="flex items-center justify-between gap-2">
-                        <h2 className="leading-none font-semibold">Assignment history</h2>
-                        <span className="text-xs text-muted-foreground tabular-nums">
+                        <h2 className="flex items-center gap-2 leading-none font-semibold">
+                            <History className="size-4 text-muted-foreground" aria-hidden />
+                            Assignment history
+                        </h2>
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
                             {history.length} record{history.length === 1 ? "" : "s"}
                         </span>
                     </div>
@@ -467,10 +548,10 @@ export function CustomerDashboard({ id }: { id: number }) {
                                                 </StatusPill>
                                             </TableCell>
                                             <TableCell className="max-w-40 truncate whitespace-nowrap text-sm tabular-nums" title={h.taggedAt ?? ""}>
-                                                {formatStamp(h.taggedAt ?? null)}
+                                                {formatHuman(h.taggedAt ?? null)}
                                             </TableCell>
                                             <TableCell className="max-w-40 truncate whitespace-nowrap text-sm tabular-nums" title={h.closedAt ?? ""}>
-                                                {formatStamp(h.closedAt ?? null)}
+                                                {formatHuman(h.closedAt ?? null)}
                                             </TableCell>
                                             <TableCell className="w-8 pr-4">
                                                 <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
@@ -484,10 +565,18 @@ export function CustomerDashboard({ id }: { id: number }) {
                 </CardContent>
             </Card>
 
-                <Card className="shadow-none border-border">
+                <Card className="shadow-none border-border/70 bg-card dark:border-border">
                     <CardHeader>
                         <div className="flex items-center justify-between gap-2">
-                            <h2 className="leading-none font-semibold">Notes</h2>
+                            <h2 className="flex items-center gap-2 leading-none font-semibold">
+                                <span
+                                    aria-hidden
+                                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground"
+                                >
+                                    <StickyNote className="size-4" />
+                                </span>
+                                Notes
+                            </h2>
                             <Button size="sm" onClick={() => setNoteOpen(true)}>
                                 <Plus className="size-4" aria-hidden />
                                 Add note
@@ -499,56 +588,34 @@ export function CustomerDashboard({ id }: { id: number }) {
                             <p className="text-sm text-muted-foreground">No notes yet.</p>
                         ) : (
                             <ul className="max-h-64 space-y-3 overflow-y-auto pr-1">
-                                {notes.map((note) =>
-                                    editing?.id === note.id ? (
-                                        <li key={note.id} className="space-y-2 rounded-md border p-3">
-                                            <Textarea
-                                                value={editBody}
-                                                onChange={(e) => setEditBody(e.target.value)}
-                                                aria-label="Edit note"
-                                                rows={3}
-                                            />
-                                            <div className="flex gap-2">
-                                                <Button size="sm" onClick={() => void submitEdit()} disabled={busy || !editBody.trim()}>
-                                                    Save
-                                                </Button>
-                                                <Button size="sm" variant="ghost" onClick={() => setEditing(null)} disabled={busy}>
-                                                    Cancel
-                                                </Button>
-                                            </div>
-                                        </li>
-                                    ) : (
-                                        <li key={note.id} className="rounded-md border p-3">
-                                            <p className="whitespace-pre-wrap text-sm">{note.body}</p>
-                                            <div className="mt-2 flex items-center justify-between gap-2">
-                                                <span className="text-xs text-muted-foreground" title={note.updated_at}>
+                                {notes.map((note) => (
+                                    <li key={note.id}>
+                                        <Link
+                                            href={`/customer-activation/customer-asset/asset-customers/${id}/notes/${note.id}`}
+                                            aria-label={`Read note from ${timeAgo(note.updated_at, now)}`}
+                                            className="block rounded-md border border-l-2 border-l-border bg-muted/20 p-3 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+                                        >
+                                            <p className="line-clamp-3 overflow-hidden text-sm">
+                                                {note.preview || stripHtml(note.body) || "—"}
+                                            </p>
+                                            <span className="mt-2 flex items-center justify-between gap-2">
+                                                <span
+                                                    className="text-xs text-muted-foreground"
+                                                    title={note.updated_at}
+                                                >
                                                     {timeAgo(note.updated_at, now)}
                                                 </span>
-                                                <div className="flex shrink-0 gap-1">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        aria-label={`Edit note ${note.id}`}
-                                                        onClick={() => {
-                                                            setEditing(note);
-                                                            setEditBody(note.body);
-                                                        }}
-                                                    >
-                                                        <Pencil className="size-4" aria-hidden />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        aria-label={`Delete note ${note.id}`}
-                                                        onClick={() => setDeleting(note)}
-                                                    >
-                                                        <Trash2 className="size-4" aria-hidden />
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </li>
-                                    ),
-                                )}
+                                                <span
+                                                    className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
+                                                    aria-hidden
+                                                >
+                                                    Read more
+                                                    <ChevronRight className="size-3.5" />
+                                                </span>
+                                            </span>
+                                        </Link>
+                                    </li>
+                                ))}
                             </ul>
                         )}
                     </CardContent>
@@ -562,13 +629,11 @@ export function CustomerDashboard({ id }: { id: number }) {
                         <DialogDescription>Internal note about this customer.</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 px-6 py-6">
-                        <Textarea
+                        <RichTextEditor
                             value={draft}
-                            onChange={(e) => setDraft(e.target.value)}
+                            onChange={setDraft}
                             placeholder="Add a note about this customer…"
-                            aria-label="New note"
-                            rows={4}
-                            autoFocus
+                            ariaLabel="New note"
                         />
                         <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
                             <DialogClose asChild>
@@ -579,7 +644,7 @@ export function CustomerDashboard({ id }: { id: number }) {
                             <Button
                                 type="button"
                                 onClick={() => void submitDraft()}
-                                disabled={saving || !draft.trim()}
+                                disabled={saving || !draftHasText}
                             >
                                 {saving ? "Adding…" : "Add note"}
                             </Button>
@@ -591,123 +656,159 @@ export function CustomerDashboard({ id }: { id: number }) {
             <Dialog open={viewing !== null} onOpenChange={(open) => !open && setViewing(null)}>
                 <DialogContent className="w-[95vw] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[480px]">
                     <DialogHeader className="px-6 pt-6">
-                        <DialogTitle>{viewing?.itemName ?? "Assignment"}</DialogTitle>
-                        <DialogDescription className="font-mono tabular-nums">
-                            {viewing?.itemCode ?? "—"}
-                        </DialogDescription>
+                        <div className="flex items-start gap-3">
+                            <span
+                                aria-hidden
+                                className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+                            >
+                                <Package className="size-5" />
+                            </span>
+                            <div className="min-w-0">
+                                <DialogTitle className="truncate" title={viewing?.itemName ?? "Assignment"}>
+                                    {viewing?.itemName ?? "Assignment"}
+                                </DialogTitle>
+                                <DialogDescription className="truncate">
+                                    {viewing ? `${viewing.itemCode} · ${customer.customer_name}` : "—"}
+                                </DialogDescription>
+                            </div>
+                        </div>
                     </DialogHeader>
                     {viewing ? (
-                        <div className="grid gap-4 px-6 py-6">
-                            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Status</dt>
-                                    <dd className="mt-1">
-                                        <StatusPill
-                                            tone={viewing.status.toLowerCase() === "open" ? "info" : "neutral"}
-                                            className="shrink-0"
-                                        >
+                        <>
+                            <div className="max-h-[70dvh] overflow-y-auto px-6 py-6">
+                                <div className="grid gap-4">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <StatusPill tone={viewingTone(viewing.status)} className="shrink-0">
                                             {assignmentLabel(viewing.status)}
                                         </StatusPill>
-                                    </dd>
+                                        {viewingLate ? (
+                                            <StatusPill tone="destructive" className="shrink-0">
+                                                Overdue
+                                            </StatusPill>
+                                        ) : null}
+                                    </div>
+                                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Quantity
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {viewing.quantity}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Returned
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {viewing.returnedQuantity}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Held
+                                            </dt>
+                                            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                                                {viewing.held}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0 rounded-lg border px-2.5 py-2">
+                                            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                                Expected return
+                                            </dt>
+                                            <dd
+                                                className={`mt-0.5 text-sm font-semibold tabular-nums ${viewingLate ? "text-rose-700 dark:text-rose-300" : ""}`}
+                                                title={viewing.expectedReturnAt ?? ""}
+                                            >
+                                                {formatHuman(viewing.expectedReturnAt)}
+                                                {viewingLate ? ` · ${viewingDaysLate}d late` : ""}
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                    <p className="text-xs text-muted-foreground">
+                                        Tagged{" "}
+                                        <span title={viewing.taggedAt ?? ""}>
+                                            {formatHuman(viewing.taggedAt)}
+                                        </span>
+                                        {viewing.closedAt ? (
+                                            <>
+                                                {" "}· Closed{" "}
+                                                <span title={viewing.closedAt ?? ""}>
+                                                    {formatHuman(viewing.closedAt)}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            ""
+                                        )}
+                                    </p>
+                                    <div className="grid gap-4">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                Remarks
+                                            </p>
+                                            {viewing.remarks ? (
+                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                                                    {viewing.remarks}
+                                                </p>
+                                            ) : (
+                                                <p className="mt-1 text-sm text-muted-foreground">No remarks</p>
+                                            )}
+                                        </div>
+                                        {showReturnRemarks ? (
+                                            <div>
+                                                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                    Return remarks
+                                                </p>
+                                                {viewing.returnRemarks ? (
+                                                    <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+                                                        {viewing.returnRemarks}
+                                                    </p>
+                                                ) : (
+                                                    <p className="mt-1 text-sm text-muted-foreground">
+                                                        No return remarks
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : null}
+                                        {viewing.conditionOut || viewing.conditionIn ? (
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {viewing.conditionOut ? (
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                            Condition out
+                                                        </p>
+                                                        <p className="mt-1 break-words text-sm">
+                                                            {viewing.conditionOut}
+                                                        </p>
+                                                    </div>
+                                                ) : null}
+                                                {viewing.conditionIn ? (
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                                            Condition in
+                                                        </p>
+                                                        <p className="mt-1 break-words text-sm">
+                                                            {viewing.conditionIn}
+                                                        </p>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Quantity</dt>
-                                    <dd className="mt-1 font-mono text-sm tabular-nums">{viewing.quantity}</dd>
-                                </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Returned</dt>
-                                    <dd className="mt-1 font-mono text-sm tabular-nums">{viewing.returnedQuantity}</dd>
-                                </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Held</dt>
-                                    <dd className="mt-1 font-mono text-sm tabular-nums">{viewing.held}</dd>
-                                </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Tagged at</dt>
-                                    <dd className="mt-1 text-sm tabular-nums">{formatStamp(viewing.taggedAt)}</dd>
-                                </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-                                        Expected return
-                                    </dt>
-                                    <dd
-                                        className={`mt-1 text-sm tabular-nums ${viewingLate ? "text-destructive" : ""}`}
-                                    >
-                                        {formatStamp(viewing.expectedReturnAt)}
-                                        {viewingLate ? ` · ${viewingDaysLate}d late` : ""}
-                                    </dd>
-                                </div>
-                                <div>
-                                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">Closed at</dt>
-                                    <dd className="mt-1 text-sm tabular-nums">{formatStamp(viewing.closedAt)}</dd>
-                                </div>
-                            </dl>
-                            <div>
-                                <p className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</p>
-                                {viewing.remarks ? (
-                                    <p className="mt-1 whitespace-pre-wrap break-words text-sm">{viewing.remarks}</p>
-                                ) : (
-                                    <p className="mt-1 text-sm text-muted-foreground">No remarks</p>
-                                )}
                             </div>
-                            {showReturnRemarks ? (
-                                <div>
-                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                                        Return remarks
-                                    </p>
-                                    {viewing.returnRemarks ? (
-                                        <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-                                            {viewing.returnRemarks}
-                                        </p>
-                                    ) : (
-                                        <p className="mt-1 text-sm text-muted-foreground">No return remarks</p>
-                                    )}
-                                </div>
-                            ) : null}
-                            {viewing.conditionOut ? (
-                                <div>
-                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                                        Condition out
-                                    </p>
-                                    <p className="mt-1 break-words text-sm">{viewing.conditionOut}</p>
-                                </div>
-                            ) : null}
-                            {viewing.conditionIn ? (
-                                <div>
-                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                                        Condition in
-                                    </p>
-                                    <p className="mt-1 break-words text-sm">{viewing.conditionIn}</p>
-                                </div>
-                            ) : null}
-                            <DialogFooter className="-mx-6 -mb-6 justify-end border-t bg-muted/20 px-6 py-4">
+                            <DialogFooter className="justify-end border-t bg-muted/20 px-6 py-4">
                                 <DialogClose asChild>
                                     <Button type="button" variant="outline">
                                         Close
                                     </Button>
                                 </DialogClose>
                             </DialogFooter>
-                        </div>
+                        </>
                     ) : null}
                 </DialogContent>
             </Dialog>
 
-            <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete note?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This permanently deletes the note. This cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction disabled={busy} onClick={() => void confirmDelete()}>
-                            Delete
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }

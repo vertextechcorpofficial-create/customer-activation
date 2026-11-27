@@ -1,15 +1,9 @@
 "use client";
 
+import { Fragment } from "react";
 import type { Activity } from "../types/pipeline.schema";
 import { StatusPill, type Tone } from "./status-pill";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { cn, formatDateTime } from "@/lib/utils";
 import {
   Mail,
@@ -67,22 +61,28 @@ export function ActivityTimeline({
   }
 
   if (!activities.length) {
-    return (
-      <Empty className="border-0 py-10">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <StickyNote className="size-5" />
-          </EmptyMedia>
-          <EmptyTitle>No activities yet</EmptyTitle>
-          <EmptyDescription>Calls, emails and visits for this lead will appear here.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
+    return <p className="text-sm text-muted-foreground">No activity yet.</p>;
+  }
+
+  const days = new Map<string, Activity[]>();
+  for (const activity of activities) {
+    const key = activity.occurred_at.length >= 10 ? activity.occurred_at.slice(0, 10) : activity.occurred_at;
+    const list = days.get(key);
+    if (list) list.push(activity);
+    else days.set(key, [activity]);
   }
 
   return (
-    <ol className="space-y-4 border-l border-border pl-8" aria-label="Activity timeline">
-      {activities.map((activity) => {
+    <ol
+      aria-label="Activity timeline"
+      className="space-y-4 border-l border-border pl-8 lg:max-h-[62dvh] lg:overflow-y-auto lg:pr-2"
+    >
+      {[...days].map(([day, items]) => (
+        <Fragment key={day}>
+          <li className="sticky top-0 z-10 -ml-8 list-none bg-card/95 py-1 backdrop-blur">
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">{day}</span>
+          </li>
+          {items.map((activity) => {
         const Icon = KIND_ICON[activity.kind];
         const tone = OUTCOME_TONE[activity.outcome ?? ""] ?? "neutral";
         return (
@@ -118,7 +118,9 @@ export function ActivityTimeline({
             </div>
           </li>
         );
-      })}
+        })}
+        </Fragment>
+      ))}
     </ol>
   );
 }

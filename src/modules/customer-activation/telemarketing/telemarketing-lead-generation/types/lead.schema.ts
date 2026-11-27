@@ -13,12 +13,20 @@ export const PhTimestampSchema = z
     .string()
     .regex(PH_TIMESTAMP, "Expected Philippine time as YYYY-MM-DD HH:mm:ss");
 
-export const LEAD_SOURCES = ["customer_db", "prospecting", "client_db"] as const;
+export const LEAD_SOURCES = ["customer_db", "prospecting", "client_db", "referral", "portal"] as const;
 
 export const PARTY_KINDS = ["customer", "company", "dealer", "none"] as const;
 
 export const SourceOption = z.enum(LEAD_SOURCES);
 export type SourceOption = z.infer<typeof SourceOption>;
+
+/**
+ * Tab identifiers for the source browser — a UI concern, never a lead
+ * payload value. `referral_accounts` must not leak into `lead.source`
+ * (`ck_tm_lead_source` rejects it); convert with `leadSourceForRow`.
+ */
+export const SOURCE_TAB_KINDS = ["customer_db", "prospecting", "referral_accounts"] as const;
+export type SourceTabKind = (typeof SOURCE_TAB_KINDS)[number];
 
 export const StageOptionSchema = z.object({
     stage_id: z.number().int(),
@@ -55,7 +63,53 @@ export interface SourceRow {
     province: string | null;
     party_kind: (typeof PARTY_KINDS)[number];
     party_id: number | null;
-    source: SourceOption;
+    /** Which browser tab the row came from — never sent as `lead.source`. */
+    source: SourceTabKind;
+    /** Referral accounts only: the registrant's person name (`full_name`). */
+    contactName?: string | null;
+    /** Referral accounts only: the registrant's job title. */
+    position?: string | null;
+    /** Referral accounts only: `company_name`, shown as its own column. */
+    company?: string | null;
+    /** Referral accounts only: raw `created_at`, formatted at render. */
+    registeredAt?: string | null;
+    /** Referral accounts only: `account_status`, rendered as a pill. */
+    accountStatus?: string | null;
+    /** Referral accounts only: `referrer_id`, sent on create to link the lead. */
+    referrer_id?: number | null;
+    /** Referral accounts only: owning website (`website_id`). Null when unassigned. */
+    websiteId?: number | null;
+    /** Referral accounts only: owning website code. */
+    websiteCode?: string | null;
+    /** Referral accounts only: owning website name, shown as a chip. */
+    websiteName?: string | null;
+    /**
+     * Referral accounts only: the code attached at registration
+     * (`attached_referral_code`). Decides the lead `source` — never sent
+     * itself. Absent until the referral-accounts endpoint selects it.
+     */
+    attachedReferralCode?: string | null;
+    /**
+     * Referral accounts only: signup-created lead (`telemarketing_lead` via
+     * `referrer_id`). Non-null means the account already converted — offer
+     * "Open lead", never "Create lead".
+     */
+    leadId?: number | null;
+    /** Referral accounts only: code of the signup-created lead. Null when unconverted. */
+    leadCode?: string | null;
+    /**
+     * Referral accounts only: product code the registrant asked for
+     * (`product_code`). Null when the account carries no enquiry.
+     */
+    productCode?: string | null;
+    /** Referral accounts only: free-text need (`need_text`). */
+    needText?: string | null;
+    /** Referral accounts only: address as given at registration. */
+    enquiryAddress?: string | null;
+    /** Referral accounts only: industry as given at registration. */
+    enquiryIndustry?: string | null;
+    /** Referral accounts only: raw consent timestamp (`consent_accepted_at`). */
+    consentAcceptedAt?: string | null;
 }
 
 /**
@@ -87,6 +141,24 @@ export type SourceResult =
 /** Page size shared by the source tabs and the sources routes — single source of truth. */
 export const SOURCE_PAGE_SIZE = 10;
 
+/**
+ * Lead `source` for a converted referral account. An account carrying a
+ * non-empty `attached_referral_code` was referred (`referral`); a direct
+ * signup converts as `portal`. The tab id `referral_accounts` is never a
+ * valid `lead.source` (`ck_tm_lead_source` rejects it).
+ */
+export function leadSourceForReferralRow(
+    row: Pick<SourceRow, "attachedReferralCode">,
+): Extract<SourceOption, "referral" | "portal"> {
+    return row.attachedReferralCode?.trim() ? "referral" : "portal";
+}
+
+/** Lead `source` for any source-browser row. Customer/prospecting tabs already carry valid values. */
+export function leadSourceForRow(row: SourceRow): SourceOption {
+    if (row.source === "referral_accounts") return leadSourceForReferralRow(row);
+    return row.source;
+}
+
 export const LeadSchema = z.object({
     lead_id: z.number().int(),
     lead_code: z.string().min(1).max(32),
@@ -103,8 +175,12 @@ export const LeadSchema = z.object({
     need: z.string().nullable().optional(),
     stage_id: z.number().int(),
     validation_status: z.string().min(1).max(32),
+    /** One product per lead (`telemarketing_products.product_id`). Null on historical rows. */
+    product_id: z.number().int().positive().nullable().optional(),
     /** Client the lead was sourced from. Absent until the owner applies the provenance migration. */
     dealer_id: z.number().int().nullable().optional(),
+    /** Referral account the lead was converted from (`referrals_account.referrer_id`). Null otherwise. */
+    referrer_id: z.number().int().positive().nullable().optional(),
     created_by: z.number().int().nullable().optional(),
     created_at: PhTimestampSchema,
     updated_by: z.number().int().nullable().optional(),
@@ -125,9 +201,13 @@ export const LeadCreateSchema = z
         product_interest: z.string().max(64).nullable().optional(),
         need: z.string().nullable().optional(),
         stage_id: z.number().int().optional(),
+        /** One product per lead. Omitted/null lands in the null-product bucket for dedupe. */
+        product_id: z.number().int().positive().nullable().optional(),
         tag_ids: z.array(z.number().int()).optional(),
         /** Client the lead was sourced from. Stored only when the `dealer_id` column exists (see provenance doc). */
         dealer_id: z.number().int().positive().optional(),
+        /** Referral account the lead was converted from. Other sources send nothing, leaving it null. */
+        referrer_id: z.number().int().positive().nullable().optional(),
     })
     .refine((v) => Boolean(v.mobile?.trim()) || Boolean(v.email?.trim()), {
         message: "A lead needs a mobile number or an email address",
@@ -145,6 +225,7 @@ export const LeadUpdateSchema = z
         product_interest: z.string().max(64).nullable().optional(),
         need: z.string().nullable().optional(),
         stage_id: z.number().int().optional(),
+        product_id: z.number().int().positive().nullable().optional(),
     })
     .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
 

@@ -49,7 +49,6 @@ export const StageHealthSchema = z.object({
   /** True for Closed Won / Closed Lost — closed stages are not work. */
   isTerminal: z.boolean(),
   leadCount: z.number().int().nonnegative(),
-  share: z.number().nonnegative(),
   avgDaysInStage: z.number().nonnegative(),
   oldestAgeDays: z.number().nonnegative(),
 });
@@ -92,7 +91,7 @@ export const HealthDeltasSchema = z.object({
 export type HealthDeltas = z.infer<typeof HealthDeltasSchema>;
 
 export const HealthInsightSchema = z.object({
-  id: z.enum(["flow", "speed", "stalled"]),
+  id: z.enum(["speed", "stalled"]),
   tone: z.enum(["success", "warning", "info", "destructive"]),
   title: z.string(),
   detail: z.string(),
